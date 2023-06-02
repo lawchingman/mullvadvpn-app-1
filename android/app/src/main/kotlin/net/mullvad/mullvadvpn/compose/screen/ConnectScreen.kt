@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -225,6 +226,7 @@ fun ConnectScreen(
             horizontalAlignment = Alignment.Start,
             modifier =
                 Modifier.animateContentSize()
+                    .background(color = MaterialTheme.colorScheme.surfaceVariant)
                     .padding(top = it.calculateTopPadding())
                     .fillMaxHeight()
                     .drawVerticalScrollbar(
@@ -236,7 +238,7 @@ fun ConnectScreen(
         ) {
             Spacer(modifier = Modifier.defaultMinSize(minHeight = Dimens.mediumPadding).weight(1f))
             MullvadCircularProgressIndicatorLarge(
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier =
                     Modifier.animateContentSize()
                         .padding(
@@ -266,13 +268,13 @@ fun ConnectScreen(
             Text(
                 text = uiState.location?.country ?: "",
                 style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Dimens.sideMargin)
             )
             Text(
                 text = uiState.location?.city ?: "",
                 style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Dimens.sideMargin)
             )
             var expanded by rememberSaveable { mutableStateOf(false) }

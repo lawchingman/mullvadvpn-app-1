@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Divider
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 
 inline fun LazyListScope.itemWithDivider(
     key: Any? = null,
@@ -13,7 +14,7 @@ inline fun LazyListScope.itemWithDivider(
 ) =
     item(key = key, contentType = contentType) {
         itemContent()
-        Divider()
+        Divider(color = Color.Transparent)
     }
 
 inline fun <T> LazyListScope.itemsIndexedWithDivider(

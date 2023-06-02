@@ -5,14 +5,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-internal val MullvadYellow = Color(0xFFFFD524)
-internal val MullvadGreen = Color(0xFF44AD4D)
-internal val MullvadWhite60 = Color(0x99FFFFFF)
-internal val MullvadWhite = Color(0xFFFFFFFF)
-internal val MullvadRed = Color(0xFFE34039)
-internal val MullvadDarkBlue = Color(0xFF192E45)
-
 const val AlphaVisible = 1f
+const val Alpha10 = 0.1f
 const val AlphaDisabled = 0.2f
 const val Alpha20 = 0.2f
 const val AlphaInactive = 0.4f
@@ -26,9 +20,12 @@ const val AlphaInvisible = 0f
 
 // Custom colors, they only link to normal material 3 colors for now
 val ColorScheme.variant: Color
-    @Composable get() = MaterialTheme.colorScheme.surface
+    @Composable get() = MaterialTheme.colorScheme.secondary
 val ColorScheme.onVariant: Color
-    @Composable get() = MaterialTheme.colorScheme.onSurface
+    @Composable get() = MaterialTheme.colorScheme.onSecondary
 
 val ColorScheme.selected: Color
-    @Composable get() = MaterialTheme.colorScheme.surface
+    @Composable get() = MaterialTheme.colorScheme.secondaryContainer
+
+val ColorScheme.onSelected: Color
+    @Composable get() = MaterialTheme.colorScheme.onSecondaryContainer
