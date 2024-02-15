@@ -39,10 +39,11 @@ use talpid_types::{
 };
 
 mod matcher;
-pub mod updater;
 
-const DATE_TIME_FORMAT_STR: &str = "%Y-%m-%d %H:%M:%S%.3f";
-const RELAYS_FILENAME: &str = "relays.json";
+// TODO(markus): Move rather than make `pub`, but ok
+pub const DATE_TIME_FORMAT_STR: &str = "%Y-%m-%d %H:%M:%S%.3f";
+// TODO(markus): Move rather than make `pub`, but ok
+pub const RELAYS_FILENAME: &str = "relays.json";
 
 const WIREGUARD_EXIT_PORT: Constraint<u16> = Constraint::Only(51820);
 const WIREGUARD_EXIT_IP_VERSION: Constraint<IpVersion> = Constraint::Only(IpVersion::V4);
@@ -83,10 +84,13 @@ pub enum Error {
     InvalidBridgeSettings(#[error(source)] MissingCustomBridgeSettings),
 }
 
-struct ParsedRelays {
+// TODO(Markus): Move rather than make `pub`, but ok
+pub struct ParsedRelays {
     last_updated: SystemTime,
-    parsed_list: RelayList,
-    original_list: RelayList,
+    // TODO(Markus): Do not make `pub`, but ok
+    pub parsed_list: RelayList,
+    // TODO(Markus): Do not make `pub`, but ok
+    pub original_list: RelayList,
     overrides: Vec<RelayOverride>,
 }
 
@@ -249,7 +253,8 @@ impl Default for SelectorConfig {
 #[derive(Clone)]
 pub struct RelaySelector {
     config: Arc<Mutex<SelectorConfig>>,
-    parsed_relays: Arc<Mutex<ParsedRelays>>,
+    // TODO(markus): Do not make public
+    pub parsed_relays: Arc<Mutex<ParsedRelays>>,
 }
 
 impl RelaySelector {

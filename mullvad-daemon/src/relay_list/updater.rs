@@ -1,4 +1,3 @@
-use super::{Error, ParsedRelays};
 use futures::{
     channel::mpsc,
     future::{Fuse, FusedFuture},
@@ -12,6 +11,7 @@ use std::{
 use tokio::fs::File;
 
 use mullvad_api::{availability::ApiAvailabilityHandle, rest::MullvadRestHandle, RelayListProxy};
+use mullvad_relay_selector::{Error, ParsedRelays, RelaySelector};
 use mullvad_types::relay_list::RelayList;
 use talpid_future::retry::{retry_future, ExponentialBackoff, Jittered};
 use talpid_types::ErrorExt;
@@ -60,7 +60,7 @@ pub struct RelayListUpdater {
 
 impl RelayListUpdater {
     pub fn spawn(
-        selector: super::RelaySelector,
+        selector: RelaySelector,
         api_handle: MullvadRestHandle,
         cache_dir: &Path,
         on_update: impl Fn(&RelayList) + Send + 'static,
@@ -70,7 +70,7 @@ impl RelayListUpdater {
         let api_client = RelayListProxy::new(api_handle);
         let updater = RelayListUpdater {
             api_client,
-            cache_path: cache_dir.join(super::RELAYS_FILENAME),
+            cache_path: cache_dir.join(mullvad_relay_selector::RELAYS_FILENAME),
             parsed_relays: selector.parsed_relays,
             on_update: Box::new(on_update),
             last_check: UNIX_EPOCH,

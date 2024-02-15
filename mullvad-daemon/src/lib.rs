@@ -17,6 +17,7 @@ mod macos;
 #[cfg(not(target_os = "android"))]
 pub mod management_interface;
 mod migrations;
+mod relay_list;
 #[cfg(not(target_os = "android"))]
 pub mod rpc_uniqueness_check;
 pub mod runtime;
@@ -36,10 +37,7 @@ use futures::{
     StreamExt,
 };
 use geoip::GeoIpHandler;
-use mullvad_relay_selector::{
-    updater::{RelayListUpdater, RelayListUpdaterHandle},
-    RelaySelector, SelectorConfig,
-};
+use mullvad_relay_selector::{RelaySelector, SelectorConfig};
 #[cfg(target_os = "android")]
 use mullvad_types::account::{PlayPurchase, PlayPurchasePaymentToken};
 use mullvad_types::{
@@ -58,6 +56,7 @@ use mullvad_types::{
     version::{AppVersion, AppVersionInfo},
     wireguard::{PublicKey, QuantumResistantState, RotationInterval},
 };
+use relay_list::updater::{RelayListUpdater, RelayListUpdaterHandle};
 use settings::SettingsPersister;
 #[cfg(target_os = "android")]
 use std::os::unix::io::RawFd;
