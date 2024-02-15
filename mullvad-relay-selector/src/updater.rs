@@ -4,17 +4,17 @@ use futures::{
     future::{Fuse, FusedFuture},
     Future, FutureExt, SinkExt, StreamExt,
 };
-use mullvad_api::{availability::ApiAvailabilityHandle, rest::MullvadRestHandle, RelayListProxy};
-use mullvad_types::relay_list::RelayList;
-use parking_lot::Mutex;
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tokio::fs::File;
+
+use mullvad_api::{availability::ApiAvailabilityHandle, rest::MullvadRestHandle, RelayListProxy};
+use mullvad_types::relay_list::RelayList;
 use talpid_future::retry::{retry_future, ExponentialBackoff, Jittered};
 use talpid_types::ErrorExt;
-use tokio::fs::File;
 
 /// How often the updater should wake up to check the cache of the in-memory cache of relays.
 /// This check is very cheap. The only reason to not have it very often is because if downloading
@@ -91,7 +91,8 @@ impl RelayListUpdater {
             futures::select! {
                 _check_update = next_check => {
                     if download_future.is_terminated() && self.should_update() {
-                        let tag = self.parsed_relays.lock().parsed_list.etag.clone();
+                      let parsed_relays = self.parsed_relays.lock().unwrap();
+                        let tag = parsed_relays.parsed_list.etag.clone();
                         download_future = Box::pin(Self::download_relay_list(self.api_availability.clone(), self.api_client.clone(), tag).fuse());
                         self.last_check = SystemTime::now();
                     }
@@ -104,7 +105,8 @@ impl RelayListUpdater {
                 cmd = cmd_rx.next() => {
                     match cmd {
                         Some(()) => {
-                            let tag = self.parsed_relays.lock().parsed_list.etag.clone();
+                            let parsed_relays = self.parsed_relays.lock().unwrap();
+                            let tag = parsed_relays.parsed_list.etag.clone();
                             download_future = Box::pin(Self::download_relay_list(self.api_availability.clone(), self.api_client.clone(), tag).fuse());
                             self.last_check = SystemTime::now();
                         },
@@ -139,7 +141,8 @@ impl RelayListUpdater {
 
     /// Returns true if the current parsed_relays is older than UPDATE_INTERVAL
     fn should_update(&mut self) -> bool {
-        let last_check = std::cmp::max(self.parsed_relays.lock().last_updated(), self.last_check);
+        let parsed_relays = &self.parsed_relays.lock().unwrap();
+        let last_check = std::cmp::max(parsed_relays.last_updated(), self.last_check);
         match SystemTime::now().duration_since(last_check) {
             Ok(duration) => duration >= UPDATE_INTERVAL,
             // If the clock is skewed we have no idea by how much or when the last update
@@ -178,7 +181,7 @@ impl RelayListUpdater {
             );
         }
 
-        let mut parsed_relays = self.parsed_relays.lock();
+        let mut parsed_relays = self.parsed_relays.lock().unwrap();
         parsed_relays.update(new_relay_list);
         (self.on_update)(&parsed_relays.original_list);
         Ok(())
