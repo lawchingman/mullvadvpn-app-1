@@ -15,16 +15,17 @@ use std::{
 
 use matcher::{BridgeMatcher, EndpointMatcher, OpenVpnMatcher, RelayMatcher, WireguardMatcher};
 use mullvad_types::{
+    constraints::{Constraint, Match, Set},
     custom_list::CustomListsSettings,
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     location::{Coordinates, Location},
     // TODO(markus): A lot of these can probably be removed using a builder pattern for constraints.
     relay_constraints::{
-        BridgeSettings, BridgeState, Constraint, InternalBridgeConstraints, LocationConstraint,
-        Match, MissingCustomBridgeSettings, ObfuscationSettings, OpenVpnConstraints, Ownership,
-        Providers, RelayConstraints, RelayConstraintsFormatter, RelayOverride, RelaySettings,
-        ResolvedBridgeSettings, ResolvedLocationConstraint, SelectedObfuscation, Set,
-        TransportPort, Udp2TcpObfuscationSettings,
+        BridgeSettings, BridgeState, InternalBridgeConstraints, LocationConstraint,
+        MissingCustomBridgeSettings, ObfuscationSettings, OpenVpnConstraints, Ownership, Providers,
+        RelayConstraints, RelayConstraintsFormatter, RelayOverride, RelaySettings,
+        ResolvedBridgeSettings, ResolvedLocationConstraint, SelectedObfuscation, TransportPort,
+        Udp2TcpObfuscationSettings,
     },
     relay_list::{BridgeEndpointData, Relay, RelayEndpointData, RelayList},
     settings::Settings,
