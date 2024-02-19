@@ -222,6 +222,7 @@ impl RelayConstraints {
         }
     }
 }
+
 impl Intersection for RelayConstraints {
     /// `intersection` defines a cautious merge strategy between two
     /// [`RelayConstraints`].
@@ -1109,10 +1110,6 @@ pub mod builder {
     pub use super::{LocationConstraint, Ownership, Providers};
     use crate::constraints::Constraint;
 
-    // Re-export everything from protocol-specific builder modules.
-    pub use openvpn::*;
-    pub use wireguard::*;
-
     /// Internal builder state for a [`RelayConstraint`] parameterized over the
     /// type of VPN tunnel protocol. Some [`RelayConstraint`] options are
     /// generic over the VPN protocol, while some options are protocol-specific.
@@ -1188,14 +1185,10 @@ pub mod builder {
             multihop: Multihop,
         }
 
-        impl RelayConstraintBuilder<Any> {
-            /// Specify the protocol of this [`RelayConstraintBuilder`] to Wireguard.
-            pub fn wireguard(self) -> RelayConstraintBuilder<Wireguard<Any>> {
-                RelayConstraintBuilder {
-                    constraints: self.constraints,
-                    protocol: Wireguard { multihop: Any },
-                }
-            }
+        /// Create a new Wireguard-oriented [`RelayConstraintBuilder`] with
+        /// otherwise unopinionated defaults.
+        pub const fn new() -> RelayConstraintBuilder<Wireguard<Any>> {
+            RelayConstraintBuilder::new(Wireguard { multihop: Any })
         }
 
         // This impl-block is quantified over all configurations
@@ -1256,16 +1249,12 @@ pub mod builder {
             transport_port: TransportPort,
         }
 
-        impl RelayConstraintBuilder<Any> {
-            /// Specify the protocol of this [`RelayConstraintBuilder`] to OpenVPN.
-            pub fn openvpn(self) -> RelayConstraintBuilder<OpenVPN<Any>> {
-                RelayConstraintBuilder {
-                    constraints: self.constraints,
-                    protocol: OpenVPN {
-                        transport_port: Any,
-                    },
-                }
-            }
+        /// Create a new OpenVPN-oriented [`RelayConstraintBuilder`] with
+        /// otherwise unopinionated defaults.
+        pub const fn new() -> RelayConstraintBuilder<OpenVPN<Any>> {
+            RelayConstraintBuilder::new(OpenVPN {
+                transport_port: Any,
+            })
         }
 
         // This impl-block is quantified over all configurations
