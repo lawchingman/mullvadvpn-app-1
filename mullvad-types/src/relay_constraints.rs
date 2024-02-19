@@ -208,6 +208,21 @@ pub struct RelayConstraints {
     pub openvpn_constraints: OpenVpnConstraints,
 }
 
+impl RelayConstraints {
+    // TODO(markus): Document
+    // const Default does not exist yet (?) :-()
+    pub const fn new() -> RelayConstraints {
+        RelayConstraints {
+            location: Constraint::Any,
+            providers: Constraint::Any,
+            ownership: Constraint::Any,
+            tunnel_protocol: Constraint::Any,
+            wireguard_constraints: WireguardConstraints::new(),
+            openvpn_constraints: OpenVpnConstraints::new(),
+        }
+    }
+}
+
 // TODO(markus): Document why `Intersection` is implemented for `RelayConstraints`.
 impl Intersection for RelayConstraints {
     fn intersection(self, other: Self) -> Option<Self>
@@ -577,6 +592,15 @@ pub struct OpenVpnConstraints {
     pub port: Constraint<TransportPort>,
 }
 
+impl OpenVpnConstraints {
+    // TODO(markus): Document
+    pub const fn new() -> OpenVpnConstraints {
+        OpenVpnConstraints {
+            port: Constraint::Any,
+        }
+    }
+}
+
 // TODO(markus): Document why `Intersection` is implemented for `OpenVpnConstraints`.
 impl Intersection for OpenVpnConstraints {
     fn intersection(self, other: Self) -> Option<Self>
@@ -622,6 +646,18 @@ pub struct WireguardConstraints {
     pub use_multihop: bool,
     #[cfg_attr(target_os = "android", jnix(skip))]
     pub entry_location: Constraint<LocationConstraint>,
+}
+
+impl WireguardConstraints {
+    // TODO(markus): Document
+    pub const fn new() -> WireguardConstraints {
+        WireguardConstraints {
+            port: Constraint::Any,
+            ip_version: Constraint::Any,
+            use_multihop: false,
+            entry_location: Constraint::Any,
+        }
+    }
 }
 
 // TODO(markus): Document why `Intersection` is implemented for `WireguardConstraints`.
@@ -962,6 +998,177 @@ impl RelayOverride {
                 relay.hostname
             );
             relay.ipv6_addr_in = Some(ipv6_addr_in);
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub mod builder {
+    //! Strongly typed Builder pattern for of relay constraints though the use of the Typestate pattern.
+    use super::RelayConstraints;
+    pub use super::{LocationConstraint, Ownership, Providers};
+    use crate::constraints::Constraint;
+
+    pub struct RelayConstraintBuilder<VpnProtocol> {
+        constraints: RelayConstraints,
+        protocol: VpnProtocol,
+    }
+
+    // Type level constraints.
+    ///  The `Any` type is equivalent to the `Constraint::Any` value. If a
+    ///  type-parameter is of type `Any`, it means that the corresponding value
+    ///  in the final `RelayConstraint` is `Constraint::Any`.
+    pub struct Any;
+
+    /// Create a new [`RelayConstraintBuilder`] with unopiniated defaults.
+    pub const fn any() -> RelayConstraintBuilder<Any> {
+        RelayConstraintBuilder::new(Any)
+    }
+
+    // This impl-block is quantified over all configurations
+    impl<VpnProtocol> RelayConstraintBuilder<VpnProtocol> {
+        const fn new(protocol: VpnProtocol) -> RelayConstraintBuilder<VpnProtocol> {
+            RelayConstraintBuilder {
+                constraints: RelayConstraints::new(),
+                protocol,
+            }
+        }
+
+        pub fn location(mut self, location: LocationConstraint) -> Self {
+            self.constraints.location = Constraint::Only(location);
+            self
+        }
+
+        pub const fn ownership(mut self, ownership: Ownership) -> Self {
+            self.constraints.ownership = Constraint::Only(ownership);
+            self
+        }
+
+        pub fn providers(mut self, providers: Providers) -> Self {
+            self.constraints.providers = Constraint::Only(providers);
+            self
+        }
+
+        pub fn build(self) -> RelayConstraints {
+            self.constraints
+        }
+    }
+
+    pub mod wireguard {
+        //! Type-safe builder for Wireguard relay constraints.
+        use super::{Any, RelayConstraintBuilder};
+        use crate::{constraints::Constraint, relay_constraints::WireguardConstraints};
+        // Re-exports
+        pub use super::LocationConstraint;
+        pub use talpid_types::net::IpVersion;
+
+        /// TODO(markus): Document
+        pub struct Wireguard<Multihop> {
+            multihop: Multihop,
+        }
+
+        pub const fn new() -> RelayConstraintBuilder<Wireguard<Any>> {
+            RelayConstraintBuilder::new(Wireguard { multihop: Any })
+        }
+
+        // This impl-block is quantified over all configurations
+        impl<Multihop> RelayConstraintBuilder<Wireguard<Multihop>> {
+            pub const fn port(mut self, port: u16) -> Self {
+                self.constraints.wireguard_constraints.port = Constraint::Only(port);
+                self
+            }
+
+            pub const fn ip_version(mut self, ip_version: IpVersion) -> Self {
+                self.constraints.wireguard_constraints.ip_version = Constraint::Only(ip_version);
+                self
+            }
+
+            /// Extract the underlying [`WireguardConstraints`] from `self`.
+            pub fn into_constraints(self) -> WireguardConstraints {
+                self.build().wireguard_constraints
+            }
+        }
+
+        impl RelayConstraintBuilder<Wireguard<Any>> {
+            /// Enable multihop
+            pub fn multihop(mut self) -> RelayConstraintBuilder<Wireguard<bool>> {
+                self.constraints.wireguard_constraints.use_multihop = true;
+                RelayConstraintBuilder {
+                    constraints: self.constraints,
+                    protocol: Wireguard { multihop: true },
+                }
+            }
+        }
+
+        impl RelayConstraintBuilder<Wireguard<bool>> {
+            /// Set the entry location in a multihop configuration. This requires
+            /// multihop to be enabled.
+            pub fn entry(mut self, location: LocationConstraint) -> Self {
+                self.constraints.wireguard_constraints.entry_location = Constraint::Only(location);
+                self
+            }
+        }
+    }
+
+    pub mod openvpn {
+        //! Type-safe builder pattern for OpenVPN relay constraints.
+        use super::{Any, RelayConstraintBuilder};
+        use crate::constraints::Constraint;
+        use crate::relay_constraints::{OpenVpnConstraints, TransportPort};
+        // Re-exports
+        pub use talpid_types::net::TransportProtocol;
+
+        /// TODO(markus): Document
+        pub struct OpenVPN<TransportPort> {
+            transport_port: TransportPort,
+        }
+
+        pub const fn new() -> RelayConstraintBuilder<OpenVPN<Any>> {
+            RelayConstraintBuilder::new(OpenVPN {
+                transport_port: Any,
+            })
+        }
+
+        // This impl-block is quantified over all configurations
+        impl<TransportPort> RelayConstraintBuilder<OpenVPN<TransportPort>> {
+            /// Extract the underlying [`OpenVpnConstraints`] from `self`.
+            pub fn into_constraints(self) -> OpenVpnConstraints {
+                self.build().openvpn_constraints
+            }
+        }
+
+        impl RelayConstraintBuilder<OpenVPN<Any>> {
+            pub fn transport_protocol(
+                mut self,
+                protocol: TransportProtocol,
+            ) -> RelayConstraintBuilder<OpenVPN<TransportPort>> {
+                let transport_port = TransportPort {
+                    protocol,
+                    port: Constraint::Any,
+                };
+                self.constraints.openvpn_constraints.port = Constraint::Only(transport_port);
+                RelayConstraintBuilder {
+                    constraints: self.constraints,
+                    protocol: OpenVPN { transport_port },
+                }
+            }
+        }
+
+        impl RelayConstraintBuilder<OpenVPN<TransportPort>> {
+            pub fn port(self, port: u16) -> Self {
+                self.port_constraint(Constraint::Only(port))
+            }
+
+            pub fn port_constraint(mut self, port: Constraint<u16>) -> Self {
+                let mut transport_port = self.protocol.transport_port;
+                transport_port.port = port;
+
+                self.constraints.openvpn_constraints.port = Constraint::Only(transport_port);
+                RelayConstraintBuilder {
+                    constraints: self.constraints,
+                    protocol: OpenVPN { transport_port },
+                }
+            }
         }
     }
 }
