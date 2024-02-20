@@ -81,5 +81,4 @@ features = [
 ]
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["time", "test-util"] }
 proptest = { workspace = true }
