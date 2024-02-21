@@ -49,13 +49,17 @@ Endpoints may be filtered by:
 Whilst all user selected constraints are always honored, when the user hasn't selected any specific
 constraints, following default ones will take effect:
 
+TODO: Check the following phrasing?
 - If no tunnel protocol is specified, the first three connection attempts will use WireGuard. All
-  remaining attempts will use OpenVPN. If no specific constraints are set:
-  - The first two attempts will connect to a Wireguard server, first on a random port, and then port
-    53.
-  - The third attempt will connect to a Wireguard server on port 80 with _udp2tcp_.
-  - Remaining attempts will connect to OpenVPN servers, first over UDP on two random ports, and then
-    over TCP on port 443. Remaining attempts alternate between TCP and UDP on random ports.
+  remaining attempts will alternate between Wireguard and OpenVPN.
+
+  - The first attempt will connect to a Wireguard server on a random port
+  - The second attempt will connect to a Wireguard server on port 443
+  - The third attempt will connect to a Wireguard server over IPV6 on a random port.
+  - .. TODO
+
+TODO: Should we revise the following strategies as well, or are they implied by
+the above set of strategies?
 
 - If the tunnel protocol is specified as WireGuard and obfuscation mode is set to _Auto_:
   - First two attempts will be used without _udp2tcp_, using a random port on first attempt, and
