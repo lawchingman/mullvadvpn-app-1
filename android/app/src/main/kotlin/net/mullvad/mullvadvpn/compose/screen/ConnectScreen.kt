@@ -217,7 +217,7 @@ fun ConnectScreen(
             globeColors =
                 GlobeColors(
                     landColor = MaterialTheme.colorScheme.primary,
-                    oceanColor = MaterialTheme.colorScheme.secondary,
+                    oceanColor = MaterialTheme.colorScheme.surface,
                 )
         )
 
@@ -226,7 +226,7 @@ fun ConnectScreen(
             horizontalAlignment = Alignment.Start,
             modifier =
                 Modifier.animateContentSize()
-                    .background(color = MaterialTheme.colorScheme.surfaceVariant)
+                    .background(color = MaterialTheme.colorScheme.surface)
                     .padding(top = it.calculateTopPadding())
                     .fillMaxHeight()
                     .drawVerticalScrollbar(
@@ -356,16 +356,15 @@ fun TunnelState.toMarker(location: GeoIpLocation?): Marker? {
 
 @Composable
 fun TunnelState.topBarColor(): Color =
-    if (isSecured()) MaterialTheme.colorScheme.inversePrimary else MaterialTheme.colorScheme.error
+    if (isSecured()) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error
 
 @Composable
 fun TunnelState.iconTintColor(): Color =
     if (isSecured()) {
-            MaterialTheme.colorScheme.onPrimary
+            MaterialTheme.colorScheme.onTertiary
         } else {
             MaterialTheme.colorScheme.onError
         }
-        .copy(alpha = AlphaTopBar)
 
 fun GeoIpLocation.toLatLong() =
     LatLong(Latitude(latitude.toFloat()), Longitude(longitude.toFloat()))

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,15 +25,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import net.mullvad.mullvadvpn.R
 import net.mullvad.mullvadvpn.compose.component.ChevronView
-import net.mullvad.mullvadvpn.compose.component.VerticalDivider
 import net.mullvad.mullvadvpn.lib.theme.AppTheme
 import net.mullvad.mullvadvpn.lib.theme.Dimens
-import net.mullvad.mullvadvpn.lib.theme.color.Alpha40
 import net.mullvad.mullvadvpn.lib.theme.color.AlphaInactive
 import net.mullvad.mullvadvpn.lib.theme.color.AlphaInvisible
 import net.mullvad.mullvadvpn.lib.theme.color.AlphaVisible
@@ -167,21 +166,19 @@ fun RelayLocationCell(
     val backgroundColor =
         when {
             selected -> MaterialTheme.colorScheme.selected
-            relay is RelayItem.Country -> MaterialTheme.colorScheme.primaryContainer
-            relay is RelayItem.City ->
-                MaterialTheme.colorScheme.primaryContainer
-                    .copy(alpha = Alpha40)
-                    .compositeOver(MaterialTheme.colorScheme.background)
-            relay is RelayItem.Relay -> MaterialTheme.colorScheme.tertiaryContainer
-            else -> MaterialTheme.colorScheme.primary
+            relay is RelayItem.CustomList -> MaterialTheme.colorScheme.surfaceContainerHighest
+            relay is RelayItem.Country -> MaterialTheme.colorScheme.surfaceContainerHigh
+            relay is RelayItem.City -> MaterialTheme.colorScheme.surfaceContainerLow
+            relay is RelayItem.Relay -> MaterialTheme.colorScheme.surfaceContainerLowest
+            else -> MaterialTheme.colorScheme.surfaceContainerLowest
         }
     val onBackgroundColor =
         when {
             selected -> MaterialTheme.colorScheme.onSelected
-            relay is RelayItem.Country -> MaterialTheme.colorScheme.onPrimaryContainer
-            relay is RelayItem.City -> MaterialTheme.colorScheme.onPrimaryContainer
-            relay is RelayItem.Relay -> MaterialTheme.colorScheme.onTertiaryContainer
-            else -> MaterialTheme.colorScheme.onPrimary
+            relay is RelayItem.Country -> MaterialTheme.colorScheme.onSurface
+            relay is RelayItem.City -> MaterialTheme.colorScheme.onSurface
+            relay is RelayItem.Relay -> MaterialTheme.colorScheme.onSurface
+            else -> MaterialTheme.colorScheme.onSurface
         }
     Column(
         modifier =
@@ -240,6 +237,7 @@ fun RelayLocationCell(
                                         AlphaInvisible
                                     }
                                 ),
+                        colorFilter = ColorFilter.tint(onBackgroundColor),
                         contentDescription = null
                     )
                 }
@@ -264,7 +262,6 @@ fun RelayLocationCell(
             }
             if (relay.hasChildren) {
                 VerticalDivider(
-                    color = MaterialTheme.colorScheme.background,
                     modifier = Modifier.padding(vertical = Dimens.verticalDividerPadding)
                 )
                 ChevronView(
