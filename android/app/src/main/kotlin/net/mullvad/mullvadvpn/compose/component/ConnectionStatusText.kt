@@ -72,7 +72,7 @@ private fun ConnectingText(isQuantumResistant: Boolean, modifier: Modifier) {
                     if (isQuantumResistant) R.string.quantum_creating_secure_connection
                     else R.string.creating_secure_connection
             ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = MaterialTheme.colorScheme.onSurface,
         style = MaterialTheme.typography.connectionStatus,
         modifier = modifier
     )
@@ -87,7 +87,7 @@ private fun ConnectedText(isQuantumResistant: Boolean, modifier: Modifier) {
                     if (isQuantumResistant) R.string.quantum_secure_connection
                     else R.string.secure_connection
             ),
-        color = MaterialTheme.colorScheme.secondary,
+        color = MaterialTheme.colorScheme.tertiary,
         style = MaterialTheme.typography.connectionStatus,
         modifier = modifier
     )
@@ -101,7 +101,7 @@ private fun ErrorText(isBlocking: Boolean, modifier: Modifier) {
                 id = if (isBlocking) R.string.blocked_connection else R.string.error_state
             ),
         color =
-            if (isBlocking) MaterialTheme.colorScheme.secondary
+            if (isBlocking) MaterialTheme.colorScheme.onSurface
             else MaterialTheme.colorScheme.error,
         style = MaterialTheme.typography.connectionStatus,
         modifier = modifier

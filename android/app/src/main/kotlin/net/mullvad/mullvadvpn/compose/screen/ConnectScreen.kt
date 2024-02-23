@@ -79,6 +79,7 @@ import net.mullvad.mullvadvpn.lib.theme.color.AlphaInvisible
 import net.mullvad.mullvadvpn.lib.theme.color.AlphaScrollbar
 import net.mullvad.mullvadvpn.lib.theme.color.AlphaTopBar
 import net.mullvad.mullvadvpn.lib.theme.color.AlphaVisible
+import net.mullvad.mullvadvpn.lib.theme.color.bodyText
 import net.mullvad.mullvadvpn.model.GeoIpLocation
 import net.mullvad.mullvadvpn.model.LatLong
 import net.mullvad.mullvadvpn.model.Latitude
@@ -226,12 +227,11 @@ fun ConnectScreen(
             horizontalAlignment = Alignment.Start,
             modifier =
                 Modifier.animateContentSize()
-                    .background(color = MaterialTheme.colorScheme.surface)
                     .padding(top = it.calculateTopPadding())
                     .fillMaxHeight()
                     .drawVerticalScrollbar(
                         scrollState,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = AlphaScrollbar)
+                        color = MaterialTheme.colorScheme.bodyText
                     )
                     .verticalScroll(scrollState)
                     .testTag(SCROLLABLE_COLUMN_TEST_TAG)
@@ -268,13 +268,13 @@ fun ConnectScreen(
             Text(
                 text = uiState.location?.country ?: "",
                 style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = Dimens.sideMargin)
             )
             Text(
                 text = uiState.location?.city ?: "",
                 style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = Dimens.sideMargin)
             )
             var expanded by rememberSaveable { mutableStateOf(false) }

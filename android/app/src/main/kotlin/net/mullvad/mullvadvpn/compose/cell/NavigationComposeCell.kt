@@ -65,7 +65,7 @@ fun NavigationComposeCell(
     title: String,
     modifier: Modifier = Modifier,
     showWarning: Boolean = false,
-    textColor: Color = MaterialTheme.colorScheme.onSecondary,
+    textColor: Color = MaterialTheme.colorScheme.onSurface,
     bodyView: @Composable () -> Unit = {
         DefaultNavigationView(
             chevronContentDescription = title,
@@ -105,7 +105,7 @@ internal fun NavigationTitleView(
     Text(
         text = title,
         style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.onPrimary,
+        color = MaterialTheme.colorScheme.onSurface,
         modifier = modifier
     )
 }
