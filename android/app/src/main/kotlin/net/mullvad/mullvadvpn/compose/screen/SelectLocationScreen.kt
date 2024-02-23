@@ -25,7 +25,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -164,7 +163,6 @@ fun SelectLocationScreen(
                     Modifier.fillMaxWidth()
                         .height(Dimens.searchFieldHeight)
                         .padding(horizontal = Dimens.searchFieldHorizontalPadding),
-                backgroundColor = MaterialTheme.colorScheme.tertiaryContainer,
                 textColor = MaterialTheme.colorScheme.onTertiaryContainer
             ) { searchString ->
                 onSearchTermInput.invoke(searchString)

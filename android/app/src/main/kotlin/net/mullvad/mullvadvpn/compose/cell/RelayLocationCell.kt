@@ -167,20 +167,20 @@ fun RelayLocationCell(
     val backgroundColor =
         when {
             selected -> MaterialTheme.colorScheme.selected
-            relay is RelayItemType.Country -> MaterialTheme.colorScheme.primaryContainer
-            relay is RelayItemType.City ->
+            relay is RelayItem.Country -> MaterialTheme.colorScheme.primaryContainer
+            relay is RelayItem.City ->
                 MaterialTheme.colorScheme.primaryContainer
                     .copy(alpha = Alpha40)
                     .compositeOver(MaterialTheme.colorScheme.background)
-            relay is RelayItemType.Relay -> MaterialTheme.colorScheme.tertiaryContainer
+            relay is RelayItem.Relay -> MaterialTheme.colorScheme.tertiaryContainer
             else -> MaterialTheme.colorScheme.primary
         }
     val onBackgroundColor =
         when {
             selected -> MaterialTheme.colorScheme.onSelected
-            relay.type == RelayItemType.Country -> MaterialTheme.colorScheme.onPrimaryContainer
-            relay.type == RelayItemType.City -> MaterialTheme.colorScheme.onPrimaryContainer
-            relay.type == RelayItemType.Relay -> MaterialTheme.colorScheme.onTertiaryContainer
+            relay is RelayItem.Country -> MaterialTheme.colorScheme.onPrimaryContainer
+            relay is RelayItem.City -> MaterialTheme.colorScheme.onPrimaryContainer
+            relay is RelayItem.Relay -> MaterialTheme.colorScheme.onTertiaryContainer
             else -> MaterialTheme.colorScheme.onPrimary
         }
     Column(
