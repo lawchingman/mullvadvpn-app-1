@@ -124,7 +124,10 @@ class AppButton: CustomButton {
     }
 
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        // fatalError("init(coder:) has not been implemented")
+        style = .default
+        super.init(coder: coder)
+        commonInit()
     }
 
     private func commonInit() {

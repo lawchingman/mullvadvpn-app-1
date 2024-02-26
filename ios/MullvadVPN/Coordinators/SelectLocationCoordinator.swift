@@ -53,7 +53,7 @@ class SelectLocationCoordinator: Coordinator, Presentable, Presenting, RelayCach
 
     func start() {
         let selectLocationViewController = SelectLocationViewController()
-
+        selectLocationViewController.delegate = self
         selectLocationViewController.didSelectRelay = { [weak self] relay in
             guard let self else { return }
 
@@ -131,5 +131,13 @@ class SelectLocationCoordinator: Coordinator, Presentable, Presenting, RelayCach
         self.cachedRelays = cachedRelays
 
         selectLocationViewController?.setCachedRelays(cachedRelays, filter: relayFilter)
+    }
+}
+
+extension SelectLocationCoordinator: SelectLocationViewControllerDelegate {
+    func didRequestRouteToCustomLists(_ controller: SelectLocationViewController) {
+        let coordinator = CustomListCoordinator(navigationController: self.navigationController)
+        addChild(coordinator)
+        coordinator.start()
     }
 }

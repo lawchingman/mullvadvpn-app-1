@@ -202,6 +202,22 @@ extension LocationDataSource: UITableViewDelegate {
                 }
             }
     }
+
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        #if DEBUG
+        dataSources[section].viewForHeader
+        #else
+        nil
+        #endif
+    }
+
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        #if DEBUG
+        dataSources[section].heightForHeaderInSection
+        #else
+        .zero
+        #endif
+    }
 }
 
 extension LocationDataSource: LocationCellEventHandler {

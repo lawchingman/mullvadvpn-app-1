@@ -11,6 +11,10 @@ import MullvadREST
 import MullvadTypes
 import UIKit
 
+protocol SelectLocationViewControllerDelegate: AnyObject {
+    func didRequestRouteToCustomLists(_ controller: SelectLocationViewController)
+}
+
 final class SelectLocationViewController: UIViewController {
     private let searchBar = UISearchBar()
     private let tableView = UITableView()
@@ -19,6 +23,8 @@ final class SelectLocationViewController: UIViewController {
     private var dataSource: LocationDataSource?
     private var cachedRelays: CachedRelays?
     private var filter = RelayFilter()
+
+    weak var delegate: SelectLocationViewControllerDelegate?
     var relayLocation: RelayLocation?
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
@@ -40,6 +46,8 @@ final class SelectLocationViewController: UIViewController {
         super.viewDidLoad()
 
         view.backgroundColor = .secondaryColor
+
+        navigationController?.navigationBar.prefersLargeTitles = true
 
         navigationItem.title = NSLocalizedString(
             "NAVIGATION_TITLE",
@@ -67,7 +75,7 @@ final class SelectLocationViewController: UIViewController {
             })
         )
 
-        setUpDataSource()
+        setUpDataSources()
         setUpTableView()
         setUpTopContent()
 
@@ -113,11 +121,14 @@ final class SelectLocationViewController: UIViewController {
 
     // MARK: - Private
 
-    private func setUpDataSource() {
+    private func setUpDataSources() {
         dataSource = LocationDataSource(
             tableView: tableView,
             allLocations: AllLocationDataSource(),
-            customLists: CustomListsDataSource()
+            customLists: CustomListsDataSource(didTapEditCustomLists: { [weak self] in
+                guard let self else { return }
+                self.delegate?.didRequestRouteToCustomLists(self)
+            })
         )
         dataSource?.didSelectRelayLocation = { [weak self] location in
             self?.didSelectRelay?(location)

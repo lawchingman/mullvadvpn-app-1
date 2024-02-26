@@ -13,6 +13,8 @@ import UIKit
 
 protocol LocationDataSourceProtocol {
     var nodeByLocation: [RelayLocation: SelectLocationNode] { get }
+    var viewForHeader: UIView? { get }
+    var heightForHeaderInSection: CGFloat { get }
 
     func search(by text: String) -> [RelayLocation]
 
@@ -23,6 +25,10 @@ protocol LocationDataSourceProtocol {
 }
 
 extension LocationDataSourceProtocol {
+    var heightForHeaderInSection: CGFloat {
+        56.0
+    }
+
     func makeRootNode(name: String) -> SelectLocationNode {
         SelectLocationNode(nodeType: .root, location: .country("#root"), displayName: name)
     }

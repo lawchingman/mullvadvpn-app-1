@@ -9,10 +9,18 @@
 import Foundation
 import MullvadREST
 import MullvadTypes
+import UIKit
 
 class AllLocationDataSource: LocationDataSourceProtocol {
     var nodeByLocation = [RelayLocation: SelectLocationNode]()
     private var locationList = [RelayLocation]()
+
+    var viewForHeader: UIView? {
+        SelectLocationHeaderView(
+            configuration: SelectLocationHeaderView
+                .Configuration(name: SelectLocationSection.allLocations.description)
+        )
+    }
 
     func search(by text: String) -> [RelayLocation] {
         guard !text.isEmpty else {

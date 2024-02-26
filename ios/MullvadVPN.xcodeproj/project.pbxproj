@@ -860,6 +860,10 @@
 		F0E8E4C92A604E7400ED26A3 /* AccountDeletionInteractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E8E4C82A604E7400ED26A3 /* AccountDeletionInteractor.swift */; };
 		F0EF50D32A8FA47E0031E8DF /* ChangeLogInteractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EF50D22A8FA47E0031E8DF /* ChangeLogInteractor.swift */; };
 		F0EF50D52A949F8E0031E8DF /* ChangeLogViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EF50D42A949F8E0031E8DF /* ChangeLogViewModel.swift */; };
+		F0F251C22B8C796400DD1B90 /* SelectLocationHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F251C12B8C796400DD1B90 /* SelectLocationHeaderView.swift */; };
+		F0F251C42B8CCF2700DD1B90 /* AddCustomList.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F0F251C32B8CCF2700DD1B90 /* AddCustomList.storyboard */; };
+		F0F251C62B8CEE0F00DD1B90 /* CustomListCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F251C52B8CEE0F00DD1B90 /* CustomListCoordinator.swift */; };
+		F0F251C92B8CF27100DD1B90 /* CustomListsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F251C82B8CF27100DD1B90 /* CustomListsViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1974,6 +1978,10 @@
 		F0E8E4C82A604E7400ED26A3 /* AccountDeletionInteractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionInteractor.swift; sourceTree = "<group>"; };
 		F0EF50D22A8FA47E0031E8DF /* ChangeLogInteractor.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ChangeLogInteractor.swift; sourceTree = "<group>"; };
 		F0EF50D42A949F8E0031E8DF /* ChangeLogViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeLogViewModel.swift; sourceTree = "<group>"; };
+		F0F251C12B8C796400DD1B90 /* SelectLocationHeaderView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SelectLocationHeaderView.swift; sourceTree = "<group>"; };
+		F0F251C32B8CCF2700DD1B90 /* AddCustomList.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = AddCustomList.storyboard; sourceTree = "<group>"; };
+		F0F251C52B8CEE0F00DD1B90 /* CustomListCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomListCoordinator.swift; sourceTree = "<group>"; };
+		F0F251C82B8CF27100DD1B90 /* CustomListsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomListsViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2356,6 +2364,7 @@
 		583FE01729C196F3006E85F9 /* SelectLocation */ = {
 			isa = PBXGroup;
 			children = (
+				F0F251C72B8CF23B00DD1B90 /* temp */,
 				F050AE5F2B73A41E003F4EDB /* AllLocationDataSource.swift */,
 				F050AE612B74DBAC003F4EDB /* CustomListsDataSource.swift */,
 				58435AC129CB2A350099C71B /* LocationCellFactory.swift */,
@@ -2363,9 +2372,10 @@
 				583DA21325FA4B5C00318683 /* LocationDataSource.swift */,
 				F050AE5D2B739A73003F4EDB /* LocationDataSourceProtocol.swift */,
 				5888AD82227B11080051EB06 /* SelectLocationCell.swift */,
-				F050AE512B70DFC0003F4EDB /* SelectLocationSection.swift */,
+				F0F251C12B8C796400DD1B90 /* SelectLocationHeaderView.swift */,
 				F050AE4B2B70D5A7003F4EDB /* SelectLocationNode.swift */,
 				F050AE4F2B70DC4F003F4EDB /* SelectLocationNodeProtocol.swift */,
+				F050AE512B70DFC0003F4EDB /* SelectLocationSection.swift */,
 				5888AD86227B17950051EB06 /* SelectLocationViewController.swift */,
 			);
 			path = SelectLocation;
@@ -3734,6 +3744,16 @@
 			path = ChangeLog;
 			sourceTree = "<group>";
 		};
+		F0F251C72B8CF23B00DD1B90 /* temp */ = {
+			isa = PBXGroup;
+			children = (
+				F0F251C32B8CCF2700DD1B90 /* AddCustomList.storyboard */,
+				F0F251C52B8CEE0F00DD1B90 /* CustomListCoordinator.swift */,
+				F0F251C82B8CF27100DD1B90 /* CustomListsViewController.swift */,
+			);
+			path = temp;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -4407,6 +4427,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7A83C3FF2A55B72E00DFB83A /* MullvadVPNApp.xctestplan in Resources */,
+				F0F251C42B8CCF2700DD1B90 /* AddCustomList.storyboard in Resources */,
 				58727283265D173C00F315B2 /* LaunchScreen.storyboard in Resources */,
 				5859A55529CD9DD900F66591 /* changes.txt in Resources */,
 				7A02D4EB2A9CEC7A00C19E31 /* MullvadVPNScreenshots.xctestplan in Resources */,
@@ -5102,6 +5123,7 @@
 				7AF9BE902A39F26000DBFEDB /* Collection+Sorting.swift in Sources */,
 				58F19E35228C15BA00C7710B /* SpinnerActivityIndicatorView.swift in Sources */,
 				5864859929A0D028006C5743 /* FormsheetPresentationController.swift in Sources */,
+				F0F251C22B8C796400DD1B90 /* SelectLocationHeaderView.swift in Sources */,
 				58CEB3022AFD365600E6E088 /* SwitchCellContentConfiguration.swift in Sources */,
 				7A9CCCB52A96302800DD6A34 /* AddCreditSucceededCoordinator.swift in Sources */,
 				7A0C0F632A979C4A0058EFCE /* Coordinator+Router.swift in Sources */,
@@ -5152,11 +5174,13 @@
 				587EB6742714520600123C75 /* PreferencesDataSourceDelegate.swift in Sources */,
 				582BB1AF229566420055B6EF /* SettingsCell.swift in Sources */,
 				7AF9BE8E2A331C7B00DBFEDB /* RelayFilterViewModel.swift in Sources */,
+				F0F251C92B8CF27100DD1B90 /* CustomListsViewController.swift in Sources */,
 				58F3C0A4249CB069003E76BE /* HeaderBarView.swift in Sources */,
 				5864AF0829C78849005B0CD9 /* CellFactoryProtocol.swift in Sources */,
 				7A6389E22B7E3BD6008E77E1 /* CustomListInteractor.swift in Sources */,
 				F07CFF2029F2720E008C0343 /* RegisteredDeviceInAppNotificationProvider.swift in Sources */,
 				7A6389E12B7E3BD6008E77E1 /* CustomListSectionIdentifier.swift in Sources */,
+				F0F251C62B8CEE0F00DD1B90 /* CustomListCoordinator.swift in Sources */,
 				58CEB2F32AFD0BA100E6E088 /* TextCellContentView.swift in Sources */,
 				7A6389E72B7E42BE008E77E1 /* CustomListViewController.swift in Sources */,
 				586C0D7C2B03BDD100E7CDD7 /* AccessMethodViewModel.swift in Sources */,
