@@ -1,10 +1,11 @@
 //! When changing relay selection, please verify if `docs/relay-selector.md` needs to be
 //! updated as well.
+#![allow(unused)]
 
 use chrono::{DateTime, Local};
 use ipnetwork::IpNetwork;
 use mullvad_types::{
-    constraints::{Constraint, Match, Set},
+    constraints::{Constraint, Intersection, Match, Set},
     custom_list::CustomListsSettings,
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     location::{Coordinates, Location},
@@ -251,6 +252,55 @@ impl Default for SelectorConfig {
 pub struct RelaySelector {
     config: Arc<Mutex<SelectorConfig>>,
     parsed_relays: Arc<Mutex<ParsedRelays>>,
+    // strategy: Option<impl RelaySelectorStrategy> // <- Has to be a type paramter of `RelaySelector`
+}
+
+/// Define a strategy for the [`RelaySelector`] to use when deciding which relay
+/// to return.
+pub struct DefaultConstraints {
+    /// This is the default constraints for tunnel endpoints. When the user
+    /// hasn't selected any specific constraints, these constraints will take
+    /// effect.
+    ///
+    /// # Note
+    ///
+    /// They are documented in further detail in `docs/relay-selector.md`.
+    stratgegy: Vec<RelayConstraints>,
+}
+
+impl DefaultConstraints {
+    pub const fn new(initial_constraints: Vec<RelayConstraints>) -> DefaultConstraints {
+        DefaultConstraints {
+            stratgegy: initial_constraints,
+        }
+    }
+}
+
+trait RelaySelectorStrategy {
+    /// TODO(markus): Document this
+    fn resolve(&self, other: RelayConstraints, retry_attempt: usize) -> Option<RelayConstraints>;
+    fn resolve_all(&self, other: RelayConstraints) -> impl Iterator<Item = RelayConstraints>;
+}
+
+impl RelaySelectorStrategy for DefaultConstraints {
+    /// TODO(markus): Document this
+    /// TODO(markus): Make more efficient
+    fn resolve(&self, other: RelayConstraints, retry_attempt: usize) -> Option<RelayConstraints> {
+        self.stratgegy
+            .clone()
+            .into_iter()
+            .cycle()
+            .filter_map(|x| x.intersection(other.clone()))
+            .nth(retry_attempt)
+    }
+
+    fn resolve_all(&self, other: RelayConstraints) -> impl Iterator<Item = RelayConstraints> {
+        self.stratgegy
+            .clone()
+            .into_iter()
+            .cycle()
+            .filter_map(move |x| x.intersection(other.clone()))
+    }
 }
 
 impl RelaySelector {
@@ -1402,6 +1452,7 @@ mod test {
         },
     };
     use once_cell::sync::Lazy;
+    use proptest::prelude::*;
     use std::collections::HashSet;
     use talpid_types::net::{wireguard::PublicKey, Endpoint};
 
@@ -2403,5 +2454,55 @@ mod test {
             ),
             "found {relay:?}, expected {expected_hostname:?}",
         )
+    }
+
+    #[test]
+    fn test_new_merge_strategy() {
+        use mullvad_types::relay_constraints::builder::{self, openvpn, wireguard};
+        // Define the order of constraints which we would like to try to apply
+        // in successive retry attemps:
+        // https://linear.app/mullvad/issue/DES-543/optimize-order-of-connection-parameters-when-trying-to-connect
+        let default_constraints: Vec<RelayConstraints> = vec![
+            // 0 Always compatible with user settings.
+            builder::any().build(),
+            // 1
+            builder::wireguard::new().build(),
+            // 2
+            builder::wireguard::new().port(443).build(),
+            // 3
+            builder::wireguard::new().ip_version(IpVersion::V6).build(),
+            // 4
+            builder::openvpn::new()
+                .transport_protocol(builder::openvpn::TransportProtocol::Tcp)
+                .port(443)
+                .build(),
+            // 5 (UDP-over-TCP is not a relay constraint, but it is only available for Wireguard)
+            builder::wireguard::new().build(),
+            // 6 Same argument as in 5
+            builder::wireguard::new().ip_version(IpVersion::V6).build(),
+            // 7 Bridges is not a relay constraint
+            builder::openvpn::new()
+                .transport_protocol(builder::openvpn::TransportProtocol::Tcp)
+                .build(),
+        ];
+
+        // create an ordered collection of relay constraints to use when finding an appropriate relay
+        let strategy = DefaultConstraints::new(default_constraints.clone());
+
+        // user_preferences is arbitrary, it could be anything
+        let user_preferences: RelayConstraints = RelayConstraints::default();
+
+        // 0
+        let resolved_constraint = strategy.resolve(user_preferences.clone(), 0);
+        assert_eq!(resolved_constraint, user_preferences.clone().into());
+        // 1
+        let resolved_constraint = strategy.resolve(user_preferences.clone(), 1);
+        assert_eq!(resolved_constraint, user_preferences.clone().into());
+        // 2
+        let resolved_constraint = strategy.resolve(user_preferences.clone(), 2);
+
+        let mut c = user_preferences.clone();
+        c.wireguard_constraints.port = Constraint::Only(443);
+        assert_eq!(c, resolved_constraint.unwrap());
     }
 }
