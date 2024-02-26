@@ -21,9 +21,10 @@ use talpid_types::net::{all_of_the_internet, wireguard, Endpoint, IpVersion, Tun
 pub struct RelayMatcher<T: EndpointMatcher> {
     /// Locations allowed to be picked from. In the case of custom lists this may be multiple
     /// locations. In normal circumstances this contains only 1 location.
-    pub locations: Constraint<ResolvedLocationConstraint>,
-    pub providers: Constraint<Providers>,
-    pub ownership: Constraint<Ownership>,
+    pub locations: Constraint<ResolvedLocationConstraint>, // TODO(markus): Slated for removal
+    pub providers: Constraint<Providers>, // TODO(markus): Slated for removal
+    pub ownership: Constraint<Ownership>, // TODO(markus): Slated for removal
+    /// Concrete representation of [`RelayConstraints`].
     pub endpoint_matcher: T,
 }
 
@@ -68,6 +69,7 @@ impl RelayMatcher<WireguardMatcher> {
 impl<T: EndpointMatcher> RelayMatcher<T> {
     /// Filter a list of relays and their endpoints based on constraints.
     /// Only relays with (and including) matching endpoints are returned.
+    // TODO(markus): Should this function simply return an iterator?
     pub fn filter_matching_relay_list<'a, R: Iterator<Item = &'a Relay> + Clone>(
         &self,
         relays: R,
@@ -138,7 +140,7 @@ pub struct OpenVpnMatcher {
 }
 
 impl OpenVpnMatcher {
-    pub fn new(constraints: OpenVpnConstraints, data: OpenVpnEndpointData) -> Self {
+    pub const fn new(constraints: OpenVpnConstraints, data: OpenVpnEndpointData) -> Self {
         Self { constraints, data }
     }
 
@@ -156,6 +158,7 @@ impl OpenVpnMatcher {
                         .unwrap_or(true)
                         && transport_port.protocol == endpoint.protocol
                 })
+                // TODO(markus): Pass this down the stack ??
                 .choose(&mut rand::thread_rng()),
         }
     }
