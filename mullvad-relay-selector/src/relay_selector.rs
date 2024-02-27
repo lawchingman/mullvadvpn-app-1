@@ -1,5 +1,22 @@
 //! The implementation of the relay selector.
 
+// TODO-list to refactor the relay selector once and for all.
+// 1. Change the return type of `get_relay`
+// The rationale here is that it really should be an enum to distinguish distinct cases.
+//
+// 2. Re-order to filtering code to a logical chain of filters.
+// Today, it is very adhoc when certain functions filter on location data or
+// relay-specific attributes. It woule make sense to process relay candidates
+// based on one attribute at a time. Why not start with location to get it out
+// of the way? With this, we could probably rip out location constraint data
+// from OpenVpnMatcher and WireguardMatcher.
+//
+// 3. Try to propagate the RNG-bits to the top of the call stack, so that the
+// core of the algorightm is pure/deterministic.
+//
+//
+// X. Remove this TODO-list
+
 mod helpers;
 mod matcher;
 #[cfg(test)]
