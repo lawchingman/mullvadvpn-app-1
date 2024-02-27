@@ -68,25 +68,24 @@ pub fn pick_random_bridge(data: &BridgeEndpointData, relay: &Relay) -> Option<Cu
     if relay.endpoint_data != RelayEndpointData::Bridge {
         return None;
     }
-    data.shadowsocks
-        // TODO(markus): State bad, oogabooga
-        .choose(&mut rand::thread_rng())
-        .map(|shadowsocks_endpoint| {
-            log::info!(
-                "Selected Shadowsocks bridge {} at {}:{}/{}",
-                relay.hostname,
-                relay.ipv4_addr_in,
-                shadowsocks_endpoint.port,
-                shadowsocks_endpoint.protocol
-            );
-            shadowsocks_endpoint.to_proxy_settings(relay.ipv4_addr_in.into())
-        })
+    let shadowsocks_endpoint = data.shadowsocks.choose(&mut rand::thread_rng());
+    if let Some(shadowsocks_endpoint) = shadowsocks_endpoint {
+        log::info!(
+            "Selected Shadowsocks bridge {} at {}:{}/{}",
+            relay.hostname,
+            relay.ipv4_addr_in,
+            shadowsocks_endpoint.port,
+            shadowsocks_endpoint.protocol
+        );
+    }
+    shadowsocks_endpoint
+        .map(|endpoint_data| endpoint_data.to_proxy_settings(relay.ipv4_addr_in.into()))
 }
 
 /// Returns a random relay endpoint if any is matching the given constraints.
 /// TODO(markus): This is apparently a hot path!
 pub fn get_tunnel_endpoint_internal<T: EndpointMatcher>(
-    relays: &[Relay],
+    relays: &[Relay], // TODO(markus): Should maybe be `&ParsedRelays`?
     matcher: &RelayMatcher<T>,
 ) -> Result<NormalSelectedRelay, Error> {
     let matching_relays: Vec<Relay> = matcher.filter_matching_relay_list(relays.iter());
@@ -284,6 +283,8 @@ pub fn preferred_tunnel_constraints_for_location(
 // TODO(markus): Obsolete, remove
 #[cfg_attr(target_os = "android", allow(dead_code))]
 pub fn preferred_constraints(
+    // TODO(markus): I think some calls could be optimized by expressing this as `impl Iterator`?
+    // Maybe it would need to be generic over the iterator (type parameter) to make use of monomorphisation?
     relays: &[Relay],
     original_constraints: &RelayConstraints,
     bridge_state: BridgeState,

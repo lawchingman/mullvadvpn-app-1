@@ -45,11 +45,11 @@ impl ParsedRelays {
         self.parsed_list.etag.clone()
     }
 
-    pub fn original_list(&self) -> &RelayList {
+    pub const fn original_list(&self) -> &RelayList {
         &self.original_list
     }
 
-    pub fn parsed_list(&self) -> &RelayList {
+    pub const fn parsed_list(&self) -> &RelayList {
         &self.parsed_list
     }
 

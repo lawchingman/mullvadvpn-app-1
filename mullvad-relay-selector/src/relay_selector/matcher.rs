@@ -70,6 +70,7 @@ impl<T: EndpointMatcher> RelayMatcher<T> {
     /// Filter a list of relays and their endpoints based on constraints.
     /// Only relays with (and including) matching endpoints are returned.
     // TODO(markus): Should this function simply return an iterator?
+    // TODO(markus): Turn this into a function which can simply be passed to `iter.filter`
     pub fn filter_matching_relay_list<'a, R: Iterator<Item = &'a Relay> + Clone>(
         &self,
         relays: R,
@@ -83,6 +84,7 @@ impl<T: EndpointMatcher> RelayMatcher<T> {
     }
 
     /// Filter a relay based on constraints and endpoint type, 1st pass.
+    // TODO(markus): Turn this into a function which can simply be passed to `iter.filter`
     fn pre_filter_matching_relay(&self, relay: &Relay) -> bool {
         relay.active
             && self.providers.matches(relay)
@@ -92,6 +94,7 @@ impl<T: EndpointMatcher> RelayMatcher<T> {
     }
 
     /// Filter a relay based on constraints and endpoint type, 2nd pass.
+    // TODO(markus): Turn this into a function which can simply be passed to `iter.filter`
     fn post_filter_matching_relay(&self, relay: &Relay, ignore_include_in_country: bool) -> bool {
         self.locations
             .matches_with_opts(relay, ignore_include_in_country)
