@@ -1348,12 +1348,10 @@ impl TunnelStateChangeHandler {
 #[cfg(test)]
 mod test {
     use super::{Error, TunnelStateChangeHandler, WG_DEVICE_CHECK_THRESHOLD};
-    use mullvad_relay_selector::RelaySelector;
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     };
-    use talpid_types::net::TunnelType;
 
     const TIMEOUT_ERROR: Error = Error::OtherRestError(mullvad_api::rest::Error::TimeoutError);
 
