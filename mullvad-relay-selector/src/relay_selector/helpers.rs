@@ -17,6 +17,7 @@ use super::{NormalSelectedRelay, SelectedObfuscator};
 use crate::{
     constants::{WIREGUARD_EXIT_IP_VERSION, WIREGUARD_EXIT_PORT},
     error::Error,
+    SelectorConfig,
 };
 
 /// Picks a relay using [Self::pick_random_relay_fn], using the `weight` member of each relay
@@ -164,20 +165,15 @@ pub fn get_udp2tcp_obfuscator(
         })
 }
 
-// TODO(markus): To remove these remaining obfuscation-specific counters, we
-// need a way of specifying whether obfuscation should be part of a retry
-// attempt or not. At first glance, this seems a bit orthogonal to the rest of
-// the relay constraints :shrug:
-//
-// TODO(markus): Obsolete, remove
-pub const fn should_use_bridge(retry_attempt: usize) -> bool {
-    // shouldn't use a bridge for the first 3 times
-    retry_attempt > 3 &&
-        // i.e. 4th and 5th with bridge, 6th & 7th without
-        // The test is to see whether the current _couple of connections_ is even or not.
-        // | retry_attempt                | 4 | 5 | 6 | 7 | 8 | 9 |
-        // | (retry_attempt % 4) < 2      | t | t | f | f | t | t |
-        (retry_attempt % 4) < 2
+// TODO(markus): This is not enough, right?
+pub const fn should_use_bridge(config: &SelectorConfig) -> bool {
+    use mullvad_types::relay_constraints::BridgeState;
+    match config.bridge_state {
+        BridgeState::On => true,
+        BridgeState::Off => false,
+        // TODO(markus): This should really be expressed as a constraint ..
+        BridgeState::Auto => false,
+    }
 }
 
 // TODO(markus): Obsolete, remove
