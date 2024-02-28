@@ -147,15 +147,15 @@ impl ParametersGenerator {
 impl InnerParametersGenerator {
     async fn generate(&mut self, retry_attempt: u32) -> Result<TunnelParameters, Error> {
         let data = self.device().await?;
-        let selected_relay =
-            self.relay_selector
-                .get_relay(retry_attempt)
-                .map_err(|err| match err {
-                    mullvad_relay_selector::Error::NoBridge => Error::NoBridgeAvailable,
-                    _ => Error::NoRelayAvailable,
-                })?;
+        let selected_relay = self
+            .relay_selector
+            .get_relay(retry_attempt as usize)
+            .map_err(|err| match err {
+                mullvad_relay_selector::Error::NoBridge => Error::NoBridgeAvailable,
+                _ => Error::NoRelayAvailable,
+            })?;
         match selected_relay {
-            (SelectedRelay::Custom(custom_relay), _bridge, _obfsucator) => {
+            (SelectedRelay::Custom(custom_relay), _bridge, _entry_relay, _obfsucator) => {
                 self.last_generated_relays = None;
                 custom_relay
                     // TODO: generate proxy settings for custom tunnels
@@ -165,9 +165,9 @@ impl InnerParametersGenerator {
                         Error::ResolveCustomHostname
                     })
             }
-            (SelectedRelay::Normal(constraints), bridge, obfuscator) => {
-                Ok(self.create_tunnel_parameters(data, constraints, bridge, obfuscator))
-            }
+            (SelectedRelay::Normal(constraints), bridge, entry_relay, obfuscator) => Ok(
+                self.create_tunnel_parameters(data, constraints, entry_relay, bridge, obfuscator)
+            ),
         }
     }
 
@@ -176,10 +176,12 @@ impl InnerParametersGenerator {
         &mut self,
         data: PrivateAccountAndDevice,
         relay: NormalSelectedRelay,
+        // Wireguard specific
+        entry_relay: Option<Relay>,
+        // OpenVPN specific
         bridge: Option<SelectedBridge>,
         obfuscator: Option<SelectedObfuscator>,
     ) -> TunnelParameters {
-        let entry_relay = relay.entry_relay;
         let exit_relay = relay.exit_relay;
         let endpoint = relay.endpoint;
         match endpoint {

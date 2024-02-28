@@ -17,6 +17,8 @@ use rand::{
 use std::net::{IpAddr, SocketAddr};
 use talpid_types::net::{all_of_the_internet, wireguard, Endpoint, IpVersion, TunnelType};
 
+use super::helpers;
+
 #[derive(Clone)]
 pub struct RelayMatcher<T: EndpointMatcher> {
     /// Locations allowed to be picked from. In the case of custom lists this may be multiple
@@ -47,15 +49,6 @@ impl RelayMatcher<AnyTunnelMatcher> {
                 openvpn: OpenVpnMatcher::new(constraints.openvpn_constraints, openvpn_data),
                 tunnel_type: constraints.tunnel_protocol,
             },
-        }
-    }
-
-    pub fn into_wireguard_matcher(self) -> RelayMatcher<WireguardMatcher> {
-        RelayMatcher {
-            endpoint_matcher: self.endpoint_matcher.wireguard,
-            locations: self.locations,
-            providers: self.providers,
-            ownership: self.ownership,
         }
     }
 }
@@ -135,51 +128,6 @@ impl EndpointMatcher for OpenVpnMatcher {
         })
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct OpenVpnMatcher {
-    pub constraints: OpenVpnConstraints,
-    pub data: OpenVpnEndpointData,
-}
-
-impl OpenVpnMatcher {
-    pub const fn new(constraints: OpenVpnConstraints, data: OpenVpnEndpointData) -> Self {
-        Self { constraints, data }
-    }
-
-    fn get_transport_port(&self) -> Option<&OpenVpnEndpoint> {
-        match self.constraints.port {
-            Constraint::Any => self.data.ports.choose(&mut rand::thread_rng()),
-            Constraint::Only(transport_port) => self
-                .data
-                .ports
-                .iter()
-                .filter(|endpoint| {
-                    transport_port
-                        .port
-                        .map(|port| port == endpoint.port)
-                        .unwrap_or(true)
-                        && transport_port.protocol == endpoint.protocol
-                })
-                // TODO(markus): Pass this down the stack ??
-                .choose(&mut rand::thread_rng()),
-        }
-    }
-}
-
-impl Match<OpenVpnEndpointData> for OpenVpnMatcher {
-    fn matches(&self, endpoint: &OpenVpnEndpointData) -> bool {
-        match self.constraints.port {
-            Constraint::Any => true,
-            Constraint::Only(transport_port) => endpoint.ports.iter().any(|endpoint| {
-                transport_port.protocol == endpoint.protocol
-                    && (transport_port.port.is_any()
-                        || transport_port.port == Constraint::Only(endpoint.port))
-            }),
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct AnyTunnelMatcher {
     pub wireguard: WireguardMatcher,
@@ -237,6 +185,72 @@ impl WireguardMatcher {
             ip_version: constraints.ip_version,
             data,
         }
+    }
+
+    pub fn new_matcher(
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        relay_constraints: RelayConstraints,
+        constraints: WireguardConstraints,
+        data: WireguardEndpointData,
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        custom_lists: &CustomListsSettings,
+    ) -> RelayMatcher<Self> {
+        RelayMatcher {
+            locations: ResolvedLocationConstraint::from_constraint(
+                relay_constraints.location,
+                custom_lists,
+            ),
+            providers: relay_constraints.providers,
+            ownership: relay_constraints.ownership,
+            endpoint_matcher: WireguardMatcher::new(constraints, data),
+        }
+    }
+
+    /// Special cased version of [`WireguardMatcher::new_matcher`] where
+    /// `wireguard_constraints.entry_location` is set as the entry location
+    /// constraint.
+    ///
+    /// TODO(markus): Can probably be removed if location is lifted out of [`RelayMatcher`].
+    pub fn new_entry_matcher(
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        relay_constraints: RelayConstraints,
+        constraints: WireguardConstraints,
+        data: WireguardEndpointData,
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        custom_lists: &CustomListsSettings,
+    ) -> RelayMatcher<Self> {
+        let locations = ResolvedLocationConstraint::from_constraint(
+            relay_constraints
+                .wireguard_constraints
+                .entry_location
+                .clone(),
+            custom_lists,
+        );
+
+        RelayMatcher {
+            locations,
+            providers: relay_constraints.providers,
+            ownership: relay_constraints.ownership,
+            endpoint_matcher: WireguardMatcher::new(constraints, data),
+        }
+    }
+
+    /// Special cased version of [`WireguardMatcher::new_matcher`] where
+    /// ..
+    ///
+    /// TODO(markus): Can probably be removed if location is lifted out of [`RelayMatcher`].
+    pub fn new_exit_matcher(
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        relay_constraints: RelayConstraints,
+        constraints: WireguardConstraints,
+        data: WireguardEndpointData,
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        custom_lists: &CustomListsSettings,
+    ) -> RelayMatcher<Self> {
+        let mut matcher =
+            Self::new_matcher(relay_constraints, constraints, data.clone(), custom_lists);
+        matcher.endpoint_matcher = helpers::wireguard_exit_matcher(data);
+        matcher
     }
 
     pub fn from_endpoint(data: WireguardEndpointData) -> Self {
@@ -334,6 +348,87 @@ impl EndpointMatcher for WireguardMatcher {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct OpenVpnMatcher {
+    pub constraints: OpenVpnConstraints,
+    pub data: OpenVpnEndpointData,
+}
+
+impl OpenVpnMatcher {
+    pub const fn new(constraints: OpenVpnConstraints, data: OpenVpnEndpointData) -> Self {
+        Self { constraints, data }
+    }
+
+    pub fn new_matcher(
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        relay_constraints: RelayConstraints,
+        constraints: OpenVpnConstraints,
+        data: OpenVpnEndpointData,
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        custom_lists: &CustomListsSettings,
+    ) -> RelayMatcher<Self> {
+        RelayMatcher {
+            locations: ResolvedLocationConstraint::from_constraint(
+                relay_constraints.location,
+                custom_lists,
+            ),
+            providers: relay_constraints.providers,
+            ownership: relay_constraints.ownership,
+            endpoint_matcher: OpenVpnMatcher::new(constraints, data),
+        }
+    }
+
+    /// Choose a valid OpenVPN port.
+    fn get_transport_port(&self) -> Option<&OpenVpnEndpoint> {
+        self.data
+            .ports
+            .iter()
+            .filter(|endpoint| match self.constraints.port {
+                Constraint::Any => true,
+                Constraint::Only(transport_port) => {
+                    transport_port
+                        .port
+                        .map(|port| port == endpoint.port)
+                        .unwrap_or(true)
+                        && transport_port.protocol == endpoint.protocol
+                }
+            })
+            .choose(&mut rand::thread_rng())
+
+        // match self.constraints.port {
+        //     Constraint::Any => self.data.ports,
+        //     Constraint::Only(transport_port) => self
+        //         .data
+        //         .ports
+        //         .iter()
+        //         .filter(|endpoint| {
+        //             transport_port
+        //                 .port
+        //                 .map(|port| port == endpoint.port)
+        //                 .unwrap_or(true)
+        //                 && transport_port.protocol == endpoint.protocol
+        //         })
+        //             .collect::<Vec<_>>()
+        // }
+        // .choose(&mut rand::thread_rng())
+    }
+}
+
+impl Match<OpenVpnEndpointData> for OpenVpnMatcher {
+    fn matches(&self, endpoint: &OpenVpnEndpointData) -> bool {
+        match self.constraints.port {
+            Constraint::Any => true,
+            Constraint::Only(transport_port) => endpoint.ports.iter().any(|endpoint| {
+                transport_port.protocol == endpoint.protocol
+                    && (transport_port.port.is_any()
+                        || transport_port.port == Constraint::Only(endpoint.port))
+            }),
+        }
+    }
+}
+
+// TODO(markus): These seem redundant
+
 #[derive(Clone)]
 pub struct BridgeMatcher(pub ());
 
@@ -346,3 +441,76 @@ impl EndpointMatcher for BridgeMatcher {
         None
     }
 }
+
+// TODO(markus): These might be needed later
+/*
+
+// TODO(markus): Comment
+#[derive(Clone)]
+pub struct GeographicMatcher {
+    /// Locations allowed to be picked from. In the case of custom lists this may be multiple
+    /// locations. In normal circumstances this contains only 1 location.
+    pub locations: Constraint<ResolvedLocationConstraint>,
+}
+
+impl GeographicMatcher {
+    pub const fn new(locations: Constraint<ResolvedLocationConstraint>) -> Self {
+        GeographicMatcher { locations }
+    }
+}
+
+impl EndpointMatcher for GeographicMatcher {
+    fn is_matching_relay(&self, relay: &Relay) -> bool {
+        self.locations.matches_with_opts(relay, true)
+    }
+
+    fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint> {
+        todo!()
+    }
+}
+
+// TODO(markus): Comment
+#[derive(Clone)]
+pub struct ProviderMatcher {
+    pub providers: Constraint<Providers>,
+}
+
+impl ProviderMatcher {
+    // TODO(markus): Do not just return [`Constraint::Any`]
+    pub const fn new(providers: Constraint<Providers>) -> Self {
+        ProviderMatcher { providers }
+    }
+}
+
+impl EndpointMatcher for ProviderMatcher {
+    fn is_matching_relay(&self, relay: &Relay) -> bool {
+        self.providers.matches(relay)
+    }
+
+    fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint> {
+        todo!()
+    }
+}
+
+// TODO(markus): Comment
+#[derive(Clone)]
+pub struct OwnershipMatcher {
+    pub ownership: Constraint<Ownership>,
+}
+
+impl OwnershipMatcher {
+    pub const fn new(ownership: Constraint<Ownership>) -> Self {
+        OwnershipMatcher { ownership }
+    }
+}
+
+impl EndpointMatcher for OwnershipMatcher {
+    fn is_matching_relay(&self, relay: &Relay) -> bool {
+        self.ownership.matches(relay)
+    }
+
+    fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint> {
+        todo!()
+    }
+}
+*/

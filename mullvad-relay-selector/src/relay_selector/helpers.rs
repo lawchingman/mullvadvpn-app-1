@@ -5,19 +5,12 @@
 use std::net::{IpAddr, SocketAddr};
 
 use mullvad_types::{
-    constraints::{Constraint, Match},
-    custom_list::CustomListsSettings,
+    constraints::Constraint,
     endpoint::MullvadWireguardEndpoint,
-    relay_constraints::{
-        BridgeState, ObfuscationSettings, OpenVpnConstraints, Ownership, Providers,
-        RelayConstraints, ResolvedLocationConstraint, SelectedObfuscation, TransportPort,
-        Udp2TcpObfuscationSettings,
-    },
+    relay_constraints::{ObfuscationSettings, SelectedObfuscation, Udp2TcpObfuscationSettings},
     relay_list::{BridgeEndpointData, Relay, RelayEndpointData, WireguardEndpointData},
 };
-use talpid_types::net::{
-    obfuscation::ObfuscatorConfig, proxy::CustomProxy, TransportProtocol, TunnelType,
-};
+use talpid_types::net::{obfuscation::ObfuscatorConfig, proxy::CustomProxy};
 
 use super::matcher::{EndpointMatcher, RelayMatcher, WireguardMatcher};
 use super::{NormalSelectedRelay, SelectedObfuscator};
@@ -84,11 +77,15 @@ pub fn pick_random_bridge(data: &BridgeEndpointData, relay: &Relay) -> Option<Cu
 
 /// Returns a random relay endpoint if any is matching the given constraints.
 /// TODO(markus): This is apparently a hot path!
-pub fn get_tunnel_endpoint_internal<T: EndpointMatcher>(
-    relays: &[Relay], // TODO(markus): Should maybe be `&ParsedRelays`?
+pub fn get_tunnel_endpoint_internal<'a, T, R>(
+    relays: R,
     matcher: &RelayMatcher<T>,
-) -> Result<NormalSelectedRelay, Error> {
-    let matching_relays: Vec<Relay> = matcher.filter_matching_relay_list(relays.iter());
+) -> Result<NormalSelectedRelay, Error>
+where
+    T: EndpointMatcher,
+    R: Iterator<Item = &'a Relay> + Clone,
+{
+    let matching_relays: Vec<Relay> = matcher.filter_matching_relay_list(relays);
 
     // TODO(markus): This should be at the top of the callchain
     pick_random_relay(&matching_relays)
@@ -116,7 +113,7 @@ pub fn get_obfuscator_inner(
     obfuscation_settings: &ObfuscationSettings,
     relay: &Relay,
     endpoint: &MullvadWireguardEndpoint,
-    retry_attempt: u32,
+    retry_attempt: usize,
 ) -> Result<Option<SelectedObfuscator>, Error> {
     match obfuscation_settings.selected_obfuscation {
         SelectedObfuscation::Auto => Ok(get_auto_obfuscator(
@@ -145,7 +142,7 @@ pub fn get_auto_obfuscator(
     obfuscation_settings: &Udp2TcpObfuscationSettings,
     relay: &Relay,
     endpoint: &MullvadWireguardEndpoint,
-    retry_attempt: u32,
+    retry_attempt: usize,
 ) -> Option<SelectedObfuscator> {
     let obfuscation_attempt = get_auto_obfuscator_retry_attempt(retry_attempt)?;
     get_udp2tcp_obfuscator(
@@ -162,14 +159,14 @@ pub fn get_udp2tcp_obfuscator(
     obfuscation_settings: &Udp2TcpObfuscationSettings,
     relay: &Relay,
     endpoint: &MullvadWireguardEndpoint,
-    retry_attempt: u32,
+    retry_attempt: usize,
 ) -> Option<SelectedObfuscator> {
     let udp2tcp_endpoint = if obfuscation_settings.port.is_only() {
         udp2tcp_ports
             .iter()
             .find(|&candidate| obfuscation_settings.port == Constraint::Only(*candidate))
     } else {
-        udp2tcp_ports.get(retry_attempt as usize % udp2tcp_ports.len())
+        udp2tcp_ports.get(retry_attempt % udp2tcp_ports.len())
     };
     udp2tcp_endpoint
         .map(|udp2tcp_endpoint| ObfuscatorConfig::Udp2Tcp {
@@ -183,7 +180,7 @@ pub fn get_udp2tcp_obfuscator(
 
 // TODO(markus): These functions below are all slated for removal.
 // TODO(markus): Obsolete, remove
-pub const fn should_use_bridge(retry_attempt: u32) -> bool {
+pub const fn should_use_bridge(retry_attempt: usize) -> bool {
     // shouldn't use a bridge for the first 3 times
     retry_attempt > 3 &&
         // i.e. 4th and 5th with bridge, 6th & 7th without
@@ -193,181 +190,8 @@ pub const fn should_use_bridge(retry_attempt: u32) -> bool {
         (retry_attempt % 4) < 2
 }
 
-// TODO(markus): Obsolete, remove.
-pub const fn preferred_wireguard_port(retry_attempt: u32) -> Constraint<u16> {
-    // Alternate between using a random port and port 53
-    if retry_attempt % 2 == 0 {
-        Constraint::Any
-    } else {
-        Constraint::Only(53)
-    }
-}
-
-// TODO(markus): Obsolete, remove.
-pub const fn preferred_openvpn_constraints(
-    retry_attempt: u32,
-) -> (Constraint<u16>, TransportProtocol) {
-    // Prefer UDP by default. But if that has failed a couple of times, then try TCP port
-    // 443, which works for many with UDP problems. After that, just alternate
-    // between protocols.
-    // If the tunnel type constraint is set OpenVpn, from the 4th attempt onwards, the first
-    // two retry attempts OpenVpn constraints should be set to TCP as a bridge will be used,
-    // and to UDP or TCP for the next two attempts.
-    match retry_attempt {
-        0 | 1 => (Constraint::Any, TransportProtocol::Udp),
-        2 | 3 => (Constraint::Only(443), TransportProtocol::Tcp),
-        attempt if attempt % 4 < 2 => (Constraint::Any, TransportProtocol::Tcp),
-        attempt if attempt % 4 == 2 => (Constraint::Any, TransportProtocol::Udp),
-        _ => (Constraint::Any, TransportProtocol::Tcp),
-    }
-}
-
-/// Return the preferred constraints, on attempt `retry_attempt`, given no other constraints
 // TODO(markus): Obsolete, remove
-pub const fn preferred_tunnel_constraints(
-    retry_attempt: u32,
-) -> (Constraint<u16>, TransportProtocol, TunnelType) {
-    // Use WireGuard on the first three attempts, then OpenVPN
-    match retry_attempt {
-        0..=2 => (
-            preferred_wireguard_port(retry_attempt),
-            TransportProtocol::Udp,
-            TunnelType::Wireguard,
-        ),
-        _ => {
-            let (preferred_port, preferred_protocol) =
-                preferred_openvpn_constraints(retry_attempt - 2);
-            (preferred_port, preferred_protocol, TunnelType::OpenVpn)
-        }
-    }
-}
-
-/// Return the preferred constraints, on attempt `retry_attempt`, for matching locations
-// TODO(markus): Obsolete, remove
-pub fn preferred_tunnel_constraints_for_location(
-    relays: &[Relay],
-    retry_attempt: u32,
-    location: &Constraint<ResolvedLocationConstraint>,
-    providers: &Constraint<Providers>,
-    ownership: Constraint<Ownership>,
-) -> (Constraint<u16>, TransportProtocol, TunnelType) {
-    let (location_supports_wg, location_supports_openvpn) = {
-        let mut active_location_relays = relays.iter().filter(|relay| {
-            relay.active
-                && location.matches_with_opts(relay, true)
-                && providers.matches(relay)
-                && ownership.matches(relay)
-        });
-        let location_supports_wg = active_location_relays
-            .clone()
-            .any(|relay| matches!(relay.endpoint_data, RelayEndpointData::Wireguard(_)));
-        let location_supports_openvpn = active_location_relays
-            .any(|relay| matches!(relay.endpoint_data, RelayEndpointData::Openvpn));
-
-        (location_supports_wg, location_supports_openvpn)
-    };
-    match (location_supports_wg, location_supports_openvpn) {
-        (true, true) | (false, false) => preferred_tunnel_constraints(retry_attempt),
-        (true, false) => {
-            let port = preferred_wireguard_port(retry_attempt);
-            (port, TransportProtocol::Udp, TunnelType::Wireguard)
-        }
-        (false, true) => {
-            let (port, transport) = preferred_openvpn_constraints(retry_attempt);
-            (port, transport, TunnelType::OpenVpn)
-        }
-    }
-}
-
-// This function ignores the tunnel type constraint on purpose.
-// TODO(markus): Obsolete, remove
-#[cfg_attr(target_os = "android", allow(dead_code))]
-pub fn preferred_constraints(
-    // TODO(markus): I think some calls could be optimized by expressing this as `impl Iterator`?
-    // Maybe it would need to be generic over the iterator (type parameter) to make use of monomorphisation?
-    relays: &[Relay],
-    original_constraints: &RelayConstraints,
-    bridge_state: BridgeState,
-    retry_attempt: u32,
-    custom_lists: &CustomListsSettings,
-) -> RelayConstraints {
-    let location = ResolvedLocationConstraint::from_constraint(
-        original_constraints.location.clone(),
-        custom_lists,
-    );
-    let (preferred_port, preferred_protocol, preferred_tunnel) =
-        preferred_tunnel_constraints_for_location(
-            relays,
-            retry_attempt,
-            &location,
-            &original_constraints.providers,
-            original_constraints.ownership,
-        );
-
-    let mut relay_constraints = original_constraints.clone();
-    relay_constraints.openvpn_constraints = Default::default();
-
-    // Highest priority preference. Where we prefer OpenVPN using UDP. But without changing
-    // any constraints that are explicitly specified.
-    match original_constraints.tunnel_protocol {
-        // If no tunnel protocol is selected, use preferred constraints
-        Constraint::Any => {
-            if bridge_state == BridgeState::On {
-                relay_constraints.openvpn_constraints = OpenVpnConstraints {
-                    port: Constraint::Only(TransportPort {
-                        protocol: TransportProtocol::Tcp,
-                        port: Constraint::Any,
-                    }),
-                };
-            } else if original_constraints.openvpn_constraints.port.is_any() {
-                relay_constraints.openvpn_constraints = OpenVpnConstraints {
-                    port: Constraint::Only(TransportPort {
-                        protocol: preferred_protocol,
-                        port: preferred_port,
-                    }),
-                };
-            } else {
-                relay_constraints.openvpn_constraints = original_constraints.openvpn_constraints;
-            }
-
-            if relay_constraints.wireguard_constraints.port.is_any() {
-                relay_constraints.wireguard_constraints.port = preferred_port;
-            }
-
-            relay_constraints.tunnel_protocol = Constraint::Only(preferred_tunnel);
-        }
-        Constraint::Only(TunnelType::OpenVpn) => {
-            let openvpn_constraints = &mut relay_constraints.openvpn_constraints;
-            *openvpn_constraints = original_constraints.openvpn_constraints;
-            if bridge_state == BridgeState::On && openvpn_constraints.port.is_any() {
-                openvpn_constraints.port = Constraint::Only(TransportPort {
-                    protocol: TransportProtocol::Tcp,
-                    port: Constraint::Any,
-                });
-            } else if openvpn_constraints.port.is_any() {
-                let (preferred_port, preferred_protocol) =
-                    preferred_openvpn_constraints(retry_attempt);
-                openvpn_constraints.port = Constraint::Only(TransportPort {
-                    protocol: preferred_protocol,
-                    port: preferred_port,
-                });
-            }
-        }
-        Constraint::Only(TunnelType::Wireguard) => {
-            relay_constraints.wireguard_constraints =
-                original_constraints.wireguard_constraints.clone();
-            if relay_constraints.wireguard_constraints.port.is_any() {
-                relay_constraints.wireguard_constraints.port =
-                    preferred_wireguard_port(retry_attempt);
-            }
-        }
-    };
-
-    relay_constraints
-}
-
-// TODO(markus): Obsolete, remove
-pub const fn get_auto_obfuscator_retry_attempt(retry_attempt: u32) -> Option<u32> {
+pub const fn get_auto_obfuscator_retry_attempt(retry_attempt: usize) -> Option<usize> {
     match retry_attempt % 4 {
         0 | 1 => None,
         // when the retry attempt is 2-3, 6-7, 10-11 ... obfuscation will be used
