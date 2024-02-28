@@ -383,7 +383,7 @@ impl RelaySelector {
                             &config.custom_lists,
                         );
 
-                        // TODO(markus) This should be used to get a set of valid exit relays.
+                        // TODO(markus) This should be used to get a set of valid entry relays.
                         let exit_matcher = WireguardMatcher::new_exit_matcher(
                             constraints.clone(),
                             constraints.wireguard_constraints.clone(),
@@ -397,6 +397,9 @@ impl RelaySelector {
                             exit_matcher,
                         )
                         .ok()
+                        .as_ref()
+                        .and_then(|relays| helpers::pick_random_relay(relays))
+                        .cloned()
                     }
                     _ => None,
                 };
@@ -541,34 +544,22 @@ impl RelaySelector {
     // entry/exit IPs as it goes.
     fn get_wireguard_multihop_endpoint(
         parsed_relays: &ParsedRelays,
-        mut entry_matcher: RelayMatcher<WireguardMatcher>,
+        entry_matcher: RelayMatcher<WireguardMatcher>,
         mut exit_matcher: RelayMatcher<WireguardMatcher>,
-    ) -> Result<Relay, Error> {
+    ) -> Result<Vec<Relay>, Error> {
         let entry_relays = entry_matcher.filter_matching_relay_list(parsed_relays.relays());
 
-        let entry_relay = if entry_matcher.locations.is_subset(&exit_matcher.locations) {
-            let entry_relay = Self::get_entry_endpoint(entry_relays)?;
-
-            exit_matcher.set_peer(entry_relay.clone());
-            entry_relay
+        if entry_matcher.locations.is_subset(&exit_matcher.locations) {
+            let entry_relay = helpers::pick_random_relay(&entry_relays)
+                .cloned()
+                .ok_or(Error::NoRelay)?;
+            exit_matcher.set_peer(entry_relay);
+            Ok(exit_matcher.filter_matching_relay_list(parsed_relays.relays()))
         } else {
-            let exit_relay =
-                helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &exit_matcher)?;
-            entry_matcher.set_peer(exit_relay.exit_relay.clone());
+            let _exit_relays = exit_matcher.filter_matching_relay_list(parsed_relays.relays());
 
-            Self::get_entry_endpoint(entry_relays)?
-        };
-
-        Ok(entry_relay)
-    }
-
-    // TODO(markus): This function should not exist.
-    fn get_entry_endpoint(entry_relays: Vec<Relay>) -> Result<Relay, Error> {
-        let relay = helpers::pick_random_relay(&entry_relays)
-            .cloned()
-            .ok_or(Error::NoRelay)?;
-
-        Ok(relay)
+            Ok(entry_matcher.filter_matching_relay_list(parsed_relays.relays()))
+        }
     }
 
     // TODO(markus): Decompose this function
