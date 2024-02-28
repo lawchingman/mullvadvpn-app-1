@@ -500,45 +500,6 @@ impl RelaySelector {
         }
     }
 
-    // Todo(markus): This is used once .. Can it be decomposed?
-    /// Returns the average location of relays that match the given constraints.
-    /// This returns none if the location is `any` or if no relays match the constraints.
-    fn get_relay_midpoint(
-        parsed_relays: &ParsedRelays,
-        relay_constraints: &RelayConstraints,
-        custom_lists: &CustomListsSettings,
-    ) -> Option<Coordinates> {
-        if relay_constraints.location.is_any() {
-            return None;
-        }
-
-        let (openvpn_data, wireguard_data) = (
-            parsed_relays.parsed_list().openvpn.clone(),
-            parsed_relays.parsed_list().wireguard.clone(),
-        );
-
-        let matcher = RelayMatcher::new(
-            relay_constraints.clone(),
-            openvpn_data,
-            wireguard_data,
-            custom_lists,
-        );
-
-        let mut matching_locations: Vec<Location> = {
-            matcher
-                .filter_matching_relay_list(parsed_relays.relays())
-                .into_iter()
-                .filter_map(|relay| relay.location)
-                .collect()
-        };
-        matching_locations.dedup_by(|a, b| a.has_same_city(b));
-
-        if matching_locations.is_empty() {
-            return None;
-        }
-        Some(Coordinates::midpoint(&matching_locations))
-    }
-
     // TODO(markus): Basically, this should not exist at all. It's job is to use
     // randomness to select one relay from a set of relays, setting different
     // entry/exit IPs as it goes.
@@ -691,5 +652,43 @@ impl RelaySelector {
             let bridge = &parsed_relays.parsed_list().bridge;
             helpers::pick_random_bridge(bridge, &relay).map(|bridge| (bridge, relay.clone()))
         })
+    }
+
+    /// Returns the average location of relays that match the given constraints.
+    /// This returns none if the location is `any` or if no relays match the constraints.
+    fn get_relay_midpoint(
+        parsed_relays: &ParsedRelays,
+        relay_constraints: &RelayConstraints,
+        custom_lists: &CustomListsSettings,
+    ) -> Option<Coordinates> {
+        if relay_constraints.location.is_any() {
+            return None;
+        }
+
+        let (openvpn_data, wireguard_data) = (
+            parsed_relays.parsed_list().openvpn.clone(),
+            parsed_relays.parsed_list().wireguard.clone(),
+        );
+
+        let matcher = RelayMatcher::new(
+            relay_constraints.clone(),
+            openvpn_data,
+            wireguard_data,
+            custom_lists,
+        );
+
+        let mut matching_locations: Vec<Location> = {
+            matcher
+                .filter_matching_relay_list(parsed_relays.relays())
+                .into_iter()
+                .filter_map(|relay| relay.location)
+                .collect()
+        };
+        matching_locations.dedup_by(|a, b| a.has_same_city(b));
+
+        if matching_locations.is_empty() {
+            return None;
+        }
+        Some(Coordinates::midpoint(&matching_locations))
     }
 }
