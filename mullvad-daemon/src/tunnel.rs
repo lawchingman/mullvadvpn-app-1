@@ -8,13 +8,9 @@ use std::{
 
 use tokio::sync::Mutex;
 
-use mullvad_relay_selector::{
-    NormalSelectedRelay, RelaySelector, SelectedBridge, SelectedObfuscator, SelectedRelay,
-};
+use mullvad_relay_selector::{GetRelay, RelaySelector, SelectedBridge};
 use mullvad_types::{
-    endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
-    location::GeoIpLocation,
-    relay_list::Relay,
+    endpoint::MullvadWireguardEndpoint, location::GeoIpLocation, relay_list::Relay,
     settings::TunnelOptions,
 };
 use once_cell::sync::Lazy;
@@ -154,70 +150,68 @@ impl InnerParametersGenerator {
                 mullvad_relay_selector::Error::NoBridge => Error::NoBridgeAvailable,
                 _ => Error::NoRelayAvailable,
             })?;
+
         match selected_relay {
-            (SelectedRelay::Custom(custom_relay), _bridge, _entry_relay, _obfsucator) => {
-                self.last_generated_relays = None;
-                custom_relay
-                    // TODO: generate proxy settings for custom tunnels
-                    .to_tunnel_parameters(self.tunnel_options.clone(), None)
-                    .map_err(|e| {
-                        log::error!("Failed to resolve hostname for custom tunnel config: {}", e);
-                        Error::ResolveCustomHostname
-                    })
-            }
-            (SelectedRelay::Normal(constraints), bridge, entry_relay, obfuscator) => Ok(
-                self.create_tunnel_parameters(data, constraints, entry_relay, bridge, obfuscator)
-            ),
-        }
-    }
-
-    #[cfg_attr(target_os = "android", allow(unused_variables))]
-    fn create_tunnel_parameters(
-        &mut self,
-        data: PrivateAccountAndDevice,
-        relay: NormalSelectedRelay,
-        // Wireguard specific
-        entry_relay: Option<Relay>,
-        // OpenVPN specific
-        bridge: Option<SelectedBridge>,
-        obfuscator: Option<SelectedObfuscator>,
-    ) -> TunnelParameters {
-        let exit_relay = relay.exit_relay;
-        let endpoint = relay.endpoint;
-        match endpoint {
-            #[cfg(not(target_os = "android"))]
-            MullvadEndpoint::OpenVpn(endpoint) => {
-                let (bridge_settings, bridge_relay) = match bridge {
-                    Some(SelectedBridge::Normal(bridge)) => {
-                        (Some(bridge.settings), Some(bridge.relay))
-                    }
-                    Some(SelectedBridge::Custom(settings)) => (Some(settings), None),
-                    None => (None, None),
-                };
-
-                self.last_generated_relays = Some(LastSelectedRelays::OpenVpn {
-                    relay: exit_relay.clone(),
-                    bridge: bridge_relay,
-                });
-                self.create_openvpn_tunnel_parameters(endpoint, data, bridge_settings)
-            }
-            #[cfg(target_os = "android")]
-            MullvadEndpoint::OpenVpn(endpoint) => {
-                unreachable!("OpenVPN is not supported on Android");
-            }
-            MullvadEndpoint::Wireguard(endpoint) => {
+            GetRelay::Wireguard {
+                relay,
+                entry,
+                obfuscator,
+            } => {
+                let exit = relay.exit_relay;
+                let endpoint = relay.endpoint;
                 let (obfuscator_relay, obfuscator_config) = match obfuscator {
                     Some(obfuscator) => (Some(obfuscator.relay), Some(obfuscator.config)),
                     None => (None, None),
                 };
 
                 self.last_generated_relays = Some(LastSelectedRelays::WireGuard {
-                    wg_entry: entry_relay.clone(),
-                    wg_exit: exit_relay.clone(),
+                    wg_entry: entry.clone(),
+                    wg_exit: exit.clone(),
                     obfuscator: obfuscator_relay,
                 });
 
-                self.create_wireguard_tunnel_parameters(endpoint, data, obfuscator_config)
+                Ok(self.create_wireguard_tunnel_parameters(
+                    endpoint.unwrap_wireguard().clone(),
+                    data,
+                    obfuscator_config,
+                ))
+            }
+
+            GetRelay::OpenVpn { relay, bridge } => {
+                let exit = relay.exit_relay;
+                let endpoint = relay.endpoint;
+                let bridge_settings = match bridge {
+                    Some(SelectedBridge::Normal(ref bridge)) => Some(bridge.settings.clone()),
+                    Some(SelectedBridge::Custom(ref settings)) => Some(settings.clone()),
+                    None => None,
+                };
+                let bridge_relay = match bridge {
+                    Some(SelectedBridge::Normal(bridge)) => Some(bridge.relay),
+                    _ => None,
+                };
+
+                // TODO(markus): Can this be done 'generically'?
+                self.last_generated_relays = Some(LastSelectedRelays::OpenVpn {
+                    relay: exit.clone(),
+                    bridge: bridge_relay,
+                });
+
+                // TODO(markus): Remodel `GetRelay` to not require this unwrap.
+                Ok(self.create_openvpn_tunnel_parameters(
+                    *endpoint.unwrap_openvpn(),
+                    data,
+                    bridge_settings,
+                ))
+            }
+            GetRelay::Custom(custom_relay) => {
+                self.last_generated_relays = None;
+                custom_relay
+                     // TODO: generate proxy settings for custom tunnels
+                     .to_tunnel_parameters(self.tunnel_options.clone(), None)
+                     .map_err(|e| {
+                         log::error!("Failed to resolve hostname for custom tunnel config: {}", e);
+                         Error::ResolveCustomHostname
+                     })
             }
         }
     }

@@ -88,6 +88,31 @@ impl Default for SelectorConfig {
     }
 }
 
+/// The return type of `get_relay`.
+pub enum GetRelay {
+    Wireguard {
+        relay: NormalSelectedRelay,
+        entry: Option<Relay>,
+        obfuscator: Option<SelectedObfuscator>,
+    },
+    OpenVpn {
+        relay: NormalSelectedRelay,
+        bridge: Option<SelectedBridge>,
+    },
+    Custom(CustomTunnelEndpoint),
+}
+
+impl GetRelay {
+    pub fn relay(&self) -> SelectedRelay {
+        match self {
+            GetRelay::Wireguard { relay, .. } | GetRelay::OpenVpn { relay, .. } => {
+                SelectedRelay::Normal(relay.clone())
+            }
+            GetRelay::Custom(relay) => SelectedRelay::Custom(relay.clone()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum SelectedBridge {
     Normal(NormalSelectedBridge),
@@ -106,7 +131,7 @@ pub enum SelectedRelay {
     Custom(CustomTunnelEndpoint),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NormalSelectedRelay {
     pub exit_relay: Relay,
     pub endpoint: MullvadEndpoint,
@@ -313,28 +338,15 @@ impl RelaySelector {
     }
 
     /// Returns a random relay and relay endpoint matching the current constraints.
+    /// TODO(markus): Look into decomposing this function.
     #[allow(clippy::type_complexity)] // TODO(markus): Remove
-    pub fn get_relay(
-        &self,
-        retry_attempt: usize,
-    ) -> Result<
-        (
-            SelectedRelay,
-            Option<SelectedBridge>,     // TODO(markus): OpenVPN
-            Option<Relay>,              // TODO(markus): Wireguard
-            Option<SelectedObfuscator>, // TODO(markus): Wireguard
-        ),
-        Error,
-    > {
+    pub fn get_relay(&self, retry_attempt: usize) -> Result<GetRelay, Error> {
         let parsed_relays = &self.parsed_relays.lock().unwrap();
         let config = self.config.lock().unwrap();
         match &config.relay_settings {
-            RelaySettings::CustomTunnelEndpoint(custom_relay) => Ok((
-                SelectedRelay::Custom(custom_relay.clone()),
-                None,
-                None,
-                None,
-            )),
+            RelaySettings::CustomTunnelEndpoint(custom_relay) => {
+                Ok(GetRelay::Custom(custom_relay.clone()))
+            }
             RelaySettings::Normal(user_preferences) => {
                 // Merge user preferences with the relay selector's default preferences.
                 let strategy = DefaultConstraints::new();
@@ -347,89 +359,87 @@ impl RelaySelector {
                     config.bridge_state,
                     &config.custom_lists,
                 )?;
-                // OpenVPN-specific stuff
-                let bridge = match relay.endpoint {
-                    MullvadEndpoint::OpenVpn(endpoint)
-                        if endpoint.protocol == TransportProtocol::Tcp =>
-                    {
-                        let location = relay
-                            .exit_relay
-                            .location
-                            .as_ref()
-                            .expect("Relay has no location set");
-                        Self::get_bridge_for(
-                            parsed_relays,
-                            &config,
-                            location,
-                            retry_attempt,
-                            &config.custom_lists,
-                        )?
-                    }
-                    _ => None,
-                };
-                // Wireguard-specific stuff
-                // NOTE: If not using multihop then `location` is set as the only location constraint.
-                // If using multihop then location is the exit constraint and
-                // `wireguard_constraints.entry_location` is set as the entry location constraint.
-                let entry_relay = match relay.endpoint {
-                    MullvadEndpoint::Wireguard(_)
-                        if constraints.wireguard_constraints.multihop() =>
-                    {
-                        // TODO(markus) This should be used to get a set of valid entry relays.
-                        let entry_matcher = WireguardMatcher::new_entry_matcher(
-                            constraints.clone(),
-                            constraints.wireguard_constraints.clone(),
-                            parsed_relays.parsed_list().wireguard.clone(),
-                            &config.custom_lists,
-                        );
 
-                        // TODO(markus) This should be used to get a set of valid entry relays.
-                        let exit_matcher = WireguardMatcher::new_exit_matcher(
-                            constraints.clone(),
-                            constraints.wireguard_constraints.clone(),
-                            parsed_relays.parsed_list().wireguard.clone(),
-                            &config.custom_lists,
-                        );
-
-                        Self::get_wireguard_multihop_endpoint(
-                            parsed_relays,
-                            entry_matcher,
-                            exit_matcher,
-                        )
-                        .ok()
-                        .as_ref()
-                        .and_then(|relays| helpers::pick_random_relay(relays))
-                        .cloned()
+                match relay.endpoint {
+                    MullvadEndpoint::OpenVpn(endpoint) => {
+                        let bridge = if endpoint.protocol == TransportProtocol::Tcp {
+                            let location = relay
+                                .exit_relay
+                                .location
+                                .as_ref()
+                                .expect("Relay has no location set");
+                            Self::get_bridge_for(
+                                parsed_relays,
+                                &config,
+                                location,
+                                retry_attempt,
+                                &config.custom_lists,
+                            )?
+                        } else {
+                            None
+                        };
+                        Ok(GetRelay::OpenVpn { relay, bridge })
                     }
-                    _ => None,
-                };
-                // Wireguard-specific stuff
-                let obfuscator = match relay.endpoint {
+                    // TODO(markus): Why a ref?
                     MullvadEndpoint::Wireguard(ref endpoint) => {
-                        let obfuscator_relay =
-                            entry_relay.clone().unwrap_or(relay.exit_relay.clone());
-                        let obfuscation_settings = &config.obfuscation_settings;
-                        let udp2tcp_ports = {
-                            let relay_list = parsed_relays.parsed_list();
-                            relay_list.wireguard.udp2tcp_ports.clone()
+                        // NOTE: If not using multihop then `location` is set as the only location constraint.
+                        // If using multihop then location is the exit constraint and
+                        // `wireguard_constraints.entry_location` is set as the entry location constraint.
+                        let entry = if constraints.wireguard_constraints.multihop() {
+                            // TODO(markus) This should be used to get a set of valid entry relays.
+                            let entry_matcher = WireguardMatcher::new_entry_matcher(
+                                constraints.clone(),
+                                constraints.wireguard_constraints.clone(),
+                                parsed_relays.parsed_list().wireguard.clone(),
+                                &config.custom_lists,
+                            );
+
+                            // TODO(markus) This should be used to get a set of valid entry relays.
+                            let exit_matcher = WireguardMatcher::new_exit_matcher(
+                                constraints.clone(),
+                                constraints.wireguard_constraints.clone(),
+                                parsed_relays.parsed_list().wireguard.clone(),
+                                &config.custom_lists,
+                            );
+
+                            Self::get_wireguard_multihop_endpoint(
+                                parsed_relays,
+                                entry_matcher,
+                                exit_matcher,
+                            )
+                            .ok()
+                            .as_ref()
+                            .and_then(|relays| helpers::pick_random_relay(relays))
+                            .cloned()
+                        } else {
+                            None
                         };
 
-                        helpers::get_obfuscator_inner(
-                            &udp2tcp_ports,
-                            obfuscation_settings,
-                            &obfuscator_relay,
-                            endpoint,
-                            retry_attempt,
-                        )?
+                        let obfuscator = {
+                            let obfuscator_relay =
+                                entry.clone().unwrap_or(relay.exit_relay.clone());
+                            let obfuscation_settings = &config.obfuscation_settings;
+                            let udp2tcp_ports = {
+                                let relay_list = parsed_relays.parsed_list();
+                                relay_list.wireguard.udp2tcp_ports.clone()
+                            };
+
+                            helpers::get_obfuscator_inner(
+                                &udp2tcp_ports,
+                                obfuscation_settings,
+                                &obfuscator_relay,
+                                endpoint,
+                                retry_attempt,
+                            )?
+                        };
+
+                        Ok(GetRelay::Wireguard {
+                            relay,
+                            entry,
+                            obfuscator,
+                        })
                     }
-                    _ => None,
-                };
-                Ok((
-                    SelectedRelay::Normal(relay),
-                    bridge,
-                    entry_relay,
-                    obfuscator,
-                ))
+                }
             }
         }
     }

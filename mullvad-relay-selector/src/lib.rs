@@ -11,5 +11,6 @@ pub use error::Error;
 pub use relay_selector::RelaySelector;
 // TODO(markus): Obsolete?
 pub use relay_selector::{
-    NormalSelectedRelay, SelectedBridge, SelectedObfuscator, SelectedRelay, SelectorConfig,
+    GetRelay, NormalSelectedRelay, SelectedBridge, SelectedObfuscator, SelectedRelay,
+    SelectorConfig,
 };

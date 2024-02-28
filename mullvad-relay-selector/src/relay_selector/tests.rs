@@ -954,7 +954,7 @@ fn test_load_balancing() {
         let mut actual_ips = HashSet::new();
 
         for retry_attempt in 0..30 {
-            let (relay, ..) = relay_selector.get_relay(retry_attempt).unwrap();
+            let relay = relay_selector.get_relay(retry_attempt).unwrap().relay();
             match relay {
                 SelectedRelay::Normal(relay) => {
                     let address = relay.endpoint.to_endpoint().address;
@@ -1106,7 +1106,7 @@ fn test_include_in_country() {
     let expected_hostname = relay_list.countries[0].cities[0].relays[0].hostname.clone();
 
     let relay_selector = RelaySelector::from_list(SelectorConfig::default(), relay_list);
-    let (relay, ..) = relay_selector.get_relay(0).expect("expected match");
+    let relay = relay_selector.get_relay(0).expect("expected match").relay();
 
     assert!(
         matches!(
