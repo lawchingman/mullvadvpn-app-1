@@ -116,42 +116,28 @@ pub fn get_obfuscator_inner(
     retry_attempt: usize,
 ) -> Result<Option<SelectedObfuscator>, Error> {
     match obfuscation_settings.selected_obfuscation {
-        SelectedObfuscation::Auto => Ok(get_auto_obfuscator(
+        SelectedObfuscation::Off => Ok(None),
+        SelectedObfuscation::Udp2Tcp => Ok(get_udp2tcp_obfuscator(
             udp2tcp_ports,
             &obfuscation_settings.udp2tcp,
             relay,
             endpoint,
             retry_attempt,
         )),
-        SelectedObfuscation::Off => Ok(None),
-        SelectedObfuscation::Udp2Tcp => Ok(Some(
-            get_udp2tcp_obfuscator(
-                udp2tcp_ports,
-                &obfuscation_settings.udp2tcp,
-                relay,
-                endpoint,
-                retry_attempt,
-            )
-            .ok_or(Error::NoObfuscator)?,
-        )),
+        SelectedObfuscation::Auto => {
+            let obfuscation_settings = &obfuscation_settings.udp2tcp;
+            match get_auto_obfuscator_retry_attempt(retry_attempt) {
+                Some(obfuscation_attempt) => Ok(get_udp2tcp_obfuscator(
+                    udp2tcp_ports,
+                    obfuscation_settings,
+                    relay,
+                    endpoint,
+                    obfuscation_attempt,
+                )),
+                None => Ok(None),
+            }
+        }
     }
-}
-
-pub fn get_auto_obfuscator(
-    udp2tcp_ports: &[u16],
-    obfuscation_settings: &Udp2TcpObfuscationSettings,
-    relay: &Relay,
-    endpoint: &MullvadWireguardEndpoint,
-    retry_attempt: usize,
-) -> Option<SelectedObfuscator> {
-    let obfuscation_attempt = get_auto_obfuscator_retry_attempt(retry_attempt)?;
-    get_udp2tcp_obfuscator(
-        udp2tcp_ports,
-        obfuscation_settings,
-        relay,
-        endpoint,
-        obfuscation_attempt,
-    )
 }
 
 pub fn get_udp2tcp_obfuscator(
@@ -178,7 +164,11 @@ pub fn get_udp2tcp_obfuscator(
         })
 }
 
-// TODO(markus): These functions below are all slated for removal.
+// TODO(markus): To remove these remaining obfuscation-specific counters, we
+// need a way of specifying whether obfuscation should be part of a retry
+// attempt or not. At first glance, this seems a bit orthogonal to the rest of
+// the relay constraints :shrug:
+//
 // TODO(markus): Obsolete, remove
 pub const fn should_use_bridge(retry_attempt: usize) -> bool {
     // shouldn't use a bridge for the first 3 times
