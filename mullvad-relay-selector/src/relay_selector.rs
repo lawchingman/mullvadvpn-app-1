@@ -37,9 +37,10 @@ use mullvad_types::{
     endpoint::MullvadEndpoint,
     location::{Coordinates, Location},
     relay_constraints::{
-        BridgeSettings, BridgeState, InternalBridgeConstraints, ObfuscationSettings,
-        RelayConstraints, RelayOverride, RelaySettings, ResolvedBridgeSettings,
-        ResolvedLocationConstraint, TransportPort,
+        OpenVpnConstraintsFilter, RelayConstraints, RelayConstraintsFilter, RelayOverride,
+        RelaySettings, ResolvedBridgeSettings, ResolvedLocationConstraint, TransportPort,
+        WireguardConstraintsFilter,
+        ResolvedBridgeSettings, ResolvedLocationConstraint, TransportPort, WireguardConstraintsFilter, OpenVpnConstraintsFilter,
     },
     relay_list::{Relay, RelayList},
     settings::Settings,
@@ -69,9 +70,12 @@ pub struct RelaySelector {
 #[derive(Clone)]
 pub struct SelectorConfig {
     pub relay_settings: RelaySettings,
+
     pub bridge_state: BridgeState,
     pub bridge_settings: BridgeSettings,
+
     pub obfuscation_settings: ObfuscationSettings,
+
     pub custom_lists: CustomListsSettings,
     pub relay_overrides: Vec<RelayOverride>,
 }
@@ -89,6 +93,23 @@ impl Default for SelectorConfig {
         }
     }
 }
+
+impl SelectorConfig {
+    /// Map user settings to [`RelayConstraintsFilter`].
+    fn blah(&self) -> RelayConstraintsFilter {
+        RelayConstraintsFilter {
+            location: Constraint::Any,
+            providers: Constraint::Any,
+            ownership: Constraint::Any,
+            tunnel_protocol: Constraint::Any,
+            wireguard_constraints: WireguardConstraintsFilter::new(),
+            openvpn_constraints: OpenVpnConstraintsFilter::new(),
+        }
+    }
+}
+
+// TODO(markus): Implement
+// impl From<SelectorConfig> for RelayConstraintsFilter {}
 
 /// The return type of `get_relay`.
 pub enum GetRelay {
@@ -159,7 +180,7 @@ pub struct DefaultConstraints {
     /// # Note
     ///
     /// They are documented in further detail in `docs/relay-selector.md`.
-    stratgegy: Vec<RelayConstraints>,
+    stratgegy: Vec<RelayConstraintsFilter>,
 }
 
 // TODO(markus): Remove this `allow`
@@ -170,7 +191,9 @@ impl DefaultConstraints {
         // Define the order of constraints which we would like to try to apply
         // in successive retry attemps:
         // https://linear.app/mullvad/issue/DES-543/optimize-order-of-connection-parameters-when-trying-to-connect
-        let default_constraints: Vec<RelayConstraints> = vec![
+        let default_constraints: Vec<RelayConstraintsFilter> = vec![
+            // 0
+            builder::any().build(),
             // 1
             builder::wireguard::new().build(),
             // 2
@@ -185,14 +208,16 @@ impl DefaultConstraints {
                 .port(443)
                 .build(),
             // 5 (UDP-over-TCP is not a relay constraint, but it is only available for Wireguard)
-            builder::wireguard::new().build(),
+            builder::wireguard::new().udp2tcp().build(),
             // 6 Same argument as in 5
             builder::wireguard::new()
+                .udp2tcp()
                 .ip_version(builder::wireguard::IpVersion::V6)
                 .build(),
-            // 7 Bridges is not a relay constraint
+            // 7
             builder::openvpn::new()
                 .transport_protocol(builder::openvpn::TransportProtocol::Tcp)
+                .bridge()
                 .build(),
         ];
 
@@ -204,28 +229,27 @@ impl DefaultConstraints {
 
 trait RelaySelectorStrategy {
     /// TODO(markus): Document this
-    fn resolve(&self, other: RelayConstraints, retry_attempt: usize) -> Option<RelayConstraints>;
-    fn resolve_all(&self, other: RelayConstraints) -> impl Iterator<Item = RelayConstraints>;
+    fn resolve(
+        &self,
+        other: RelayConstraintsFilter,
+        retry_attempt: usize,
+    ) -> Option<RelayConstraintsFilter>;
 }
 
 impl RelaySelectorStrategy for DefaultConstraints {
     /// TODO(markus): Document this
     /// TODO(markus): Make more efficient
-    fn resolve(&self, other: RelayConstraints, retry_attempt: usize) -> Option<RelayConstraints> {
+    fn resolve(
+        &self,
+        other: RelayConstraintsFilter,
+        retry_attempt: usize,
+    ) -> Option<RelayConstraintsFilter> {
         self.stratgegy
             .clone()
             .into_iter()
             .cycle()
             .filter_map(|constraint| constraint.intersection(other.clone()))
             .nth(retry_attempt)
-    }
-
-    fn resolve_all(&self, other: RelayConstraints) -> impl Iterator<Item = RelayConstraints> {
-        self.stratgegy
-            .clone()
-            .into_iter()
-            .cycle()
-            .filter_map(move |constraint| constraint.intersection(other.clone()))
     }
 }
 
@@ -343,8 +367,9 @@ impl RelaySelector {
             RelaySettings::CustomTunnelEndpoint(custom_relay) => {
                 Ok(GetRelay::Custom(custom_relay.clone()))
             }
-            RelaySettings::Normal(user_preferences) => {
-                Self::get_normal_relay(parsed_relays, &config, user_preferences, retry_attempt)
+            RelaySettings::Normal(_) => {
+                let user_preferences = config.blah();
+                Self::get_normal_relay(parsed_relays, &config, &user_preferences, retry_attempt)
             }
         }
     }
@@ -354,14 +379,15 @@ impl RelaySelector {
     fn get_normal_relay(
         parsed_relays: &ParsedRelays,
         config: &SelectorConfig,
-        user_preferences: &RelayConstraints,
+        user_preferences: &RelayConstraintsFilter,
         retry_attempt: usize,
     ) -> Result<GetRelay, Error> {
         // Merge user preferences with the relay selector's default preferences.
         let strategy = DefaultConstraints::new();
-        let constraints = strategy
+        let _constraints = strategy
             .resolve(user_preferences.clone(), retry_attempt)
             .unwrap_or(user_preferences.clone());
+        let constraints = RelayConstraints::new();
         let relay = Self::get_tunnel_endpoint(
             parsed_relays,
             &constraints,

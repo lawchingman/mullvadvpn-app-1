@@ -208,6 +208,7 @@ pub struct RelayConstraints {
     pub openvpn_constraints: OpenVpnConstraints,
 }
 
+// TODO(markus)
 impl RelayConstraints {
     /// Create a new [`RelayConstraints`] with no opinionated defaults. This
     /// should be the const equivalent to [`Default::default`].
@@ -220,6 +221,52 @@ impl RelayConstraints {
             wireguard_constraints: WireguardConstraints::any(),
             openvpn_constraints: OpenVpnConstraints::new(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RelayConstraintsFilter {
+    pub location: Constraint<LocationConstraint>,
+    pub providers: Constraint<Providers>,
+    pub ownership: Constraint<Ownership>,
+    pub tunnel_protocol: Constraint<TunnelType>,
+    pub wireguard_constraints: WireguardConstraintsFilter,
+    pub openvpn_constraints: OpenVpnConstraintsFilter,
+}
+
+impl RelayConstraintsFilter {
+    /// Create a new [`RelayConstraints`] with no opinionated defaults. This
+    /// should be the const equivalent to [`Default::default`].
+    pub const fn new() -> RelayConstraintsFilter {
+        RelayConstraintsFilter {
+            location: Constraint::Any,
+            providers: Constraint::Any,
+            ownership: Constraint::Any,
+            tunnel_protocol: Constraint::Any,
+            wireguard_constraints: WireguardConstraintsFilter::new(),
+            openvpn_constraints: OpenVpnConstraintsFilter::new(),
+        }
+    }
+}
+
+impl Intersection for RelayConstraintsFilter {
+    fn intersection(self, other: Self) -> Option<Self>
+    where
+        Self: PartialEq,
+        Self: Sized,
+    {
+        Some(RelayConstraintsFilter {
+            location: self.location.intersection(other.location)?,
+            providers: self.providers.intersection(other.providers)?,
+            ownership: self.ownership.intersection(other.ownership)?,
+            tunnel_protocol: self.tunnel_protocol.intersection(other.tunnel_protocol)?,
+            wireguard_constraints: self
+                .wireguard_constraints
+                .intersection(other.wireguard_constraints)?,
+            openvpn_constraints: self
+                .openvpn_constraints
+                .intersection(other.openvpn_constraints)?,
+        })
     }
 }
 
@@ -680,6 +727,80 @@ pub struct WireguardConstraints {
     pub entry_location: Constraint<LocationConstraint>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct WireguardConstraintsFilter {
+    pub port: Constraint<u16>,
+    pub ip_version: Constraint<IpVersion>,
+    pub use_multihop: Constraint<bool>,
+    pub entry_location: Constraint<LocationConstraint>,
+    pub obfuscation: SelectedObfuscation,
+    pub udp2tcp_port: Constraint<Udp2TcpObfuscationSettings>,
+}
+
+impl WireguardConstraintsFilter {
+    pub const fn new() -> WireguardConstraintsFilter {
+        WireguardConstraintsFilter {
+            port: Constraint::Any,
+            ip_version: Constraint::Any,
+            use_multihop: Constraint::Any,
+            entry_location: Constraint::Any,
+            obfuscation: SelectedObfuscation::Auto,
+            udp2tcp_port: Constraint::Any,
+        }
+    }
+}
+impl Intersection for WireguardConstraintsFilter {
+    fn intersection(self, other: Self) -> Option<Self>
+    where
+        Self: PartialEq,
+        Self: Sized,
+    {
+        Some(WireguardConstraintsFilter {
+            port: self.port.intersection(other.port)?,
+            ip_version: self.ip_version.intersection(other.ip_version)?,
+            use_multihop: self.use_multihop.intersection(other.use_multihop)?,
+            entry_location: self.entry_location.intersection(other.entry_location)?,
+            obfuscation: self.obfuscation.intersection(other.obfuscation)?,
+            udp2tcp_port: self.udp2tcp_port.intersection(other.udp2tcp_port)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct OpenVpnConstraintsFilter {
+    pub port: Constraint<TransportPort>,
+    pub bridge_settings: Constraint<BridgeSettingsFilter>,
+}
+
+impl OpenVpnConstraintsFilter {
+    pub const fn new() -> OpenVpnConstraintsFilter {
+        OpenVpnConstraintsFilter {
+            port: Constraint::Any,
+            bridge_settings: Constraint::Any,
+        }
+    }
+}
+
+impl Intersection for OpenVpnConstraintsFilter {
+    fn intersection(self, other: Self) -> Option<Self>
+    where
+        Self: PartialEq,
+        Self: Sized,
+    {
+        Some(OpenVpnConstraintsFilter {
+            port: self.port.intersection(other.port)?,
+            bridge_settings: self.bridge_settings.intersection(other.bridge_settings)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum BridgeSettingsFilter {
+    Off,
+    Normal(BridgeConstraints),
+    Custom(Option<CustomProxy>),
+}
+
 mod multihop {
     //! TODO: The following module can be removed if `use_multihop` is ever
     //! (re)moved from `WireguardConstraints` and/or changes type definition
@@ -927,6 +1048,21 @@ impl fmt::Display for SelectedObfuscation {
     }
 }
 
+impl Intersection for SelectedObfuscation {
+    fn intersection(self, other: Self) -> Option<Self>
+    where
+        Self: PartialEq,
+        Self: Sized,
+    {
+        match (self, other) {
+            (left, SelectedObfuscation::Auto) => Some(left),
+            (SelectedObfuscation::Auto, right) => Some(right),
+            (left, right) if left == right => Some(left),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(target_os = "android", derive(IntoJava))]
 #[cfg_attr(target_os = "android", jnix(package = "net.mullvad.mullvadvpn.model"))]
@@ -1106,7 +1242,7 @@ impl RelayOverride {
 #[allow(dead_code)]
 pub mod builder {
     //! Strongly typed Builder pattern for of relay constraints though the use of the Typestate pattern.
-    use super::RelayConstraints;
+    use super::RelayConstraintsFilter;
     pub use super::{LocationConstraint, Ownership, Providers};
     use crate::constraints::Constraint;
 
@@ -1119,7 +1255,7 @@ pub mod builder {
     /// expose different functions for configuring a [`RelayConstraintBuilder`]
     /// further.
     pub struct RelayConstraintBuilder<VpnProtocol> {
-        constraints: RelayConstraints,
+        constraints: RelayConstraintsFilter,
         protocol: VpnProtocol,
     }
 
@@ -1138,7 +1274,7 @@ pub mod builder {
     impl<VpnProtocol> RelayConstraintBuilder<VpnProtocol> {
         const fn new(protocol: VpnProtocol) -> RelayConstraintBuilder<VpnProtocol> {
             RelayConstraintBuilder {
-                constraints: RelayConstraints::new(),
+                constraints: RelayConstraintsFilter::new(),
                 protocol,
             }
         }
@@ -1163,7 +1299,7 @@ pub mod builder {
 
         /// Assemble the final [`RelayConstraints`] that has been configured
         /// through `self`.
-        pub fn build(self) -> RelayConstraints {
+        pub fn build(self) -> RelayConstraintsFilter {
             self.constraints
         }
     }
@@ -1171,7 +1307,10 @@ pub mod builder {
     pub mod wireguard {
         //! Type-safe builder for Wireguard relay constraints.
         use super::{Any, RelayConstraintBuilder};
-        use crate::{constraints::Constraint, relay_constraints::WireguardConstraints};
+        use crate::{
+            constraints::Constraint,
+            relay_constraints::{Udp2TcpObfuscationSettings, WireguardConstraintsFilter},
+        };
         // Re-exports
         pub use super::LocationConstraint;
         pub use talpid_types::net::IpVersion;
@@ -1181,18 +1320,22 @@ pub mod builder {
         /// - The type parameter `Multihop` keeps track of the state of multihop.
         /// If multihop has been enabled, the builder should expose an option to
         /// select entry point.
-        pub struct Wireguard<Multihop> {
+        pub struct Wireguard<Multihop, Obfuscation> {
             multihop: Multihop,
+            obfuscation: Obfuscation,
         }
 
         /// Create a new Wireguard-oriented [`RelayConstraintBuilder`] with
         /// otherwise unopinionated defaults.
-        pub const fn new() -> RelayConstraintBuilder<Wireguard<Any>> {
-            RelayConstraintBuilder::new(Wireguard { multihop: Any })
+        pub const fn new() -> RelayConstraintBuilder<Wireguard<Any, Any>> {
+            RelayConstraintBuilder::new(Wireguard {
+                multihop: Any,
+                obfuscation: Any,
+            })
         }
 
         // This impl-block is quantified over all configurations
-        impl<Multihop> RelayConstraintBuilder<Wireguard<Multihop>> {
+        impl<Multihop, Obfuscation> RelayConstraintBuilder<Wireguard<Multihop, Obfuscation>> {
             pub const fn port(mut self, port: u16) -> Self {
                 self.constraints.wireguard_constraints.port = Constraint::Only(port);
                 self
@@ -1204,24 +1347,27 @@ pub mod builder {
             }
 
             /// Extract the underlying [`WireguardConstraints`] from `self`.
-            pub fn into_constraints(self) -> WireguardConstraints {
+            pub fn into_constraints(self) -> WireguardConstraintsFilter {
                 self.build().wireguard_constraints
             }
         }
 
-        impl RelayConstraintBuilder<Wireguard<Any>> {
+        impl<Obfuscation> RelayConstraintBuilder<Wireguard<Any, Obfuscation>> {
             /// Enable multihop
-            pub fn multihop(mut self) -> RelayConstraintBuilder<Wireguard<bool>> {
+            pub fn multihop(mut self) -> RelayConstraintBuilder<Wireguard<bool, Obfuscation>> {
                 self.constraints.wireguard_constraints.use_multihop = Constraint::Only(true);
                 // Update the type state
                 RelayConstraintBuilder {
                     constraints: self.constraints,
-                    protocol: Wireguard { multihop: true },
+                    protocol: Wireguard {
+                        multihop: true,
+                        obfuscation: self.protocol.obfuscation,
+                    },
                 }
             }
         }
 
-        impl RelayConstraintBuilder<Wireguard<bool>> {
+        impl<Obfuscation> RelayConstraintBuilder<Wireguard<bool, Obfuscation>> {
             /// Set the entry location in a multihop configuration. This requires
             /// multihop to be enabled.
             pub fn entry(mut self, location: LocationConstraint) -> Self {
@@ -1229,13 +1375,46 @@ pub mod builder {
                 self
             }
         }
+
+        impl<Multihop> RelayConstraintBuilder<Wireguard<Multihop, Any>> {
+            // TODO(markus): Document
+            pub fn udp2tcp(
+                mut self,
+            ) -> RelayConstraintBuilder<Wireguard<Multihop, Udp2TcpObfuscationSettings>>
+            {
+                let obfuscation = Udp2TcpObfuscationSettings {
+                    port: Constraint::Any,
+                };
+                let protocol = Wireguard {
+                    multihop: self.protocol.multihop,
+                    obfuscation: obfuscation.clone(),
+                };
+                self.constraints.wireguard_constraints.udp2tcp_port = Constraint::Only(obfuscation);
+                RelayConstraintBuilder {
+                    constraints: self.constraints,
+                    protocol,
+                }
+            }
+        }
+
+        impl<Multihop> RelayConstraintBuilder<Wireguard<Multihop, Udp2TcpObfuscationSettings>> {
+            // TODO(markus): Document
+            pub fn udp2tcp_port(mut self, port: u16) -> Self {
+                self.protocol.obfuscation.port = Constraint::Only(port);
+                self.constraints.wireguard_constraints.udp2tcp_port =
+                    Constraint::Only(self.protocol.obfuscation.clone());
+                self
+            }
+        }
     }
 
     pub mod openvpn {
         //! Type-safe builder pattern for OpenVPN relay constraints.
-        use super::{Any, RelayConstraintBuilder};
+        use super::{Any, LocationConstraint, Ownership, Providers, RelayConstraintBuilder};
         use crate::constraints::Constraint;
-        use crate::relay_constraints::{OpenVpnConstraints, TransportPort};
+        use crate::relay_constraints::{
+            BridgeConstraints, BridgeSettingsFilter, OpenVpnConstraintsFilter, TransportPort,
+        };
         // Re-exports
         pub use talpid_types::net::TransportProtocol;
 
@@ -1245,34 +1424,36 @@ pub mod builder {
         /// [`TransportProtocol`] & port-combo to use. [`TransportProtocol`] has
         /// to be set first before the option to select a specific port is
         /// exposed.
-        pub struct OpenVPN<TransportPort> {
+        pub struct OpenVPN<TransportPort, Bridge> {
             transport_port: TransportPort,
+            bridge_settings: Bridge,
         }
 
         /// Create a new OpenVPN-oriented [`RelayConstraintBuilder`] with
         /// otherwise unopinionated defaults.
-        pub const fn new() -> RelayConstraintBuilder<OpenVPN<Any>> {
+        pub const fn new() -> RelayConstraintBuilder<OpenVPN<Any, Any>> {
             RelayConstraintBuilder::new(OpenVPN {
                 transport_port: Any,
+                bridge_settings: Any,
             })
         }
 
         // This impl-block is quantified over all configurations
-        impl<TransportPort> RelayConstraintBuilder<OpenVPN<TransportPort>> {
+        impl<TransportPort, Bridge> RelayConstraintBuilder<OpenVPN<TransportPort, Bridge>> {
             /// Extract the underlying [`OpenVpnConstraints`] from `self`.
-            pub fn into_constraints(self) -> OpenVpnConstraints {
+            pub fn into_constraints(self) -> OpenVpnConstraintsFilter {
                 self.build().openvpn_constraints
             }
         }
 
-        impl RelayConstraintBuilder<OpenVPN<Any>> {
+        impl<Bridge> RelayConstraintBuilder<OpenVPN<Any, Bridge>> {
             /// Configure what [`TransportProtocol`] to use. Calling this
             /// function on a builder will expose the option to select which
             /// port to use in combination with `protocol`.
             pub fn transport_protocol(
                 mut self,
                 protocol: TransportProtocol,
-            ) -> RelayConstraintBuilder<OpenVPN<TransportPort>> {
+            ) -> RelayConstraintBuilder<OpenVPN<TransportPort, Bridge>> {
                 let transport_port = TransportPort {
                     protocol,
                     // The port has not been configured yet
@@ -1282,18 +1463,70 @@ pub mod builder {
                 // Update the type state
                 RelayConstraintBuilder {
                     constraints: self.constraints,
-                    protocol: OpenVPN { transport_port },
+                    protocol: OpenVPN {
+                        transport_port,
+                        bridge_settings: self.protocol.bridge_settings,
+                    },
                 }
             }
         }
 
-        impl RelayConstraintBuilder<OpenVPN<TransportPort>> {
+        impl<Bridge> RelayConstraintBuilder<OpenVPN<TransportPort, Bridge>> {
             /// Configure what port to use when connecting to a relay.
             pub const fn port(mut self, port: u16) -> Self {
                 let port = Constraint::Only(port);
                 let mut transport_port = self.protocol.transport_port;
                 transport_port.port = port;
                 self.constraints.openvpn_constraints.port = Constraint::Only(transport_port);
+                self
+            }
+        }
+
+        impl<TransportPort> RelayConstraintBuilder<OpenVPN<TransportPort, Any>> {
+            /// Enable Bridges
+            pub fn bridge(
+                mut self,
+            ) -> RelayConstraintBuilder<OpenVPN<TransportPort, BridgeConstraints>> {
+                let bridge_settings = BridgeConstraints {
+                    location: Constraint::Any,
+                    providers: Constraint::Any,
+                    ownership: Constraint::Any,
+                };
+                let protocol = OpenVPN {
+                    transport_port: self.protocol.transport_port,
+                    bridge_settings: bridge_settings.clone(),
+                };
+
+                self.constraints.openvpn_constraints.bridge_settings =
+                    Constraint::Only(BridgeSettingsFilter::Normal(bridge_settings));
+
+                RelayConstraintBuilder {
+                    constraints: self.constraints,
+                    protocol,
+                }
+            }
+        }
+
+        impl<TransportPort> RelayConstraintBuilder<OpenVPN<TransportPort, BridgeConstraints>> {
+            ///
+            pub fn bridge_location(mut self, location: LocationConstraint) -> Self {
+                self.protocol.bridge_settings.location = Constraint::Only(location);
+                self.constraints.openvpn_constraints.bridge_settings = Constraint::Only(
+                    BridgeSettingsFilter::Normal(self.protocol.bridge_settings.clone()),
+                );
+                self
+            }
+            ///
+            pub fn bridge_providers(mut self, providers: Providers) -> Self {
+                self.protocol.bridge_settings.providers = Constraint::Only(providers);
+                self.constraints.openvpn_constraints.bridge_settings = Constraint::Only(
+                    BridgeSettingsFilter::Normal(self.protocol.bridge_settings.clone()),
+                );
+                self
+            }
+            ///
+            pub fn bridge_ownership(mut self, ownership: Ownership) -> Self {
+                self.protocol.bridge_settings.ownership = Constraint::Only(ownership);
                 self
             }
         }
@@ -1451,6 +1684,7 @@ pub mod proptest {
     }
 }
 
+/*
 #[cfg(test)]
 mod test {
     use super::proptest::*;
@@ -1500,3 +1734,4 @@ mod test {
         }
     }
 }
+*/

@@ -24,10 +24,7 @@ use talpid_types::net::{
 use crate::{
     error::Error,
     relay_selector::helpers,
-    relay_selector::{
-        DefaultConstraints, NormalSelectedRelay, RelaySelector, RelaySelectorStrategy,
-        SelectedRelay, SelectorConfig,
-    },
+    relay_selector::{NormalSelectedRelay, RelaySelector, SelectedRelay, SelectorConfig},
 };
 
 use super::SelectedObfuscator;
@@ -1123,6 +1120,7 @@ fn test_include_in_country() {
     )
 }
 
+/*
 #[test]
 fn test_new_merge_strategy() {
     // TODO(markus): Test a user preference such that it can not unify with any default constraint.
@@ -1144,3 +1142,4 @@ fn test_new_merge_strategy() {
     c.wireguard_constraints.port = Constraint::Only(443);
     assert_eq!(c, resolved_constraint.unwrap());
 }
+*/

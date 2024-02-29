@@ -181,12 +181,12 @@ impl InnerParametersGenerator {
                 let exit = relay.exit_relay;
                 let endpoint = relay.endpoint;
                 let bridge_settings = match bridge {
-                    Some(SelectedBridge::Normal(ref bridge)) => Some(bridge.settings.clone()),
+                    Some(SelectedBridge::Normal { ref settings, .. } ) => Some(settings.clone()),
                     Some(SelectedBridge::Custom(ref settings)) => Some(settings.clone()),
                     None => None,
                 };
                 let bridge_relay = match bridge {
-                    Some(SelectedBridge::Normal(bridge)) => Some(bridge.relay),
+                    Some(SelectedBridge::Normal { relay, .. } ) => Some(relay),
                     _ => None,
                 };
 
