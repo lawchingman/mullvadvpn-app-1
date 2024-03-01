@@ -789,6 +789,9 @@ impl Intersection for OpenVpnConstraintsFilter {
     {
         Some(OpenVpnConstraintsFilter {
             port: self.port.intersection(other.port)?,
+            // TODO(markus): I don't think this will work.. We have to recursively call `intersection`
+            // on bridge settings?
+            // TODO(markus): Hand-roll this intersection
             bridge_settings: self.bridge_settings.intersection(other.bridge_settings)?,
         })
     }

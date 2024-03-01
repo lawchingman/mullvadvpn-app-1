@@ -37,9 +37,10 @@ use mullvad_types::{
     endpoint::MullvadEndpoint,
     location::{Coordinates, Location},
     relay_constraints::{
-        BridgeSettings, BridgeState, InternalBridgeConstraints, ObfuscationSettings,
-        OpenVpnConstraintsFilter, RelayConstraints, RelayConstraintsFilter, RelayOverride,
-        RelaySettings, ResolvedBridgeSettings, ResolvedLocationConstraint, TransportPort,
+        BridgeSettings, BridgeSettingsFilter, BridgeState, InternalBridgeConstraints,
+        ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter, RelayConstraints,
+        RelayConstraintsFilter, RelayOverride, RelaySettings, ResolvedBridgeSettings,
+        ResolvedLocationConstraint, TransportPort, WireguardConstraints,
         WireguardConstraintsFilter,
     },
     relay_list::{Relay, RelayList},
@@ -128,16 +129,76 @@ impl Default for SelectorConfig {
     }
 }
 
+// TODO(markus): Move this?
 impl SelectorConfig {
     /// Map user settings to [`RelayConstraintsFilter`].
     fn blah(&self) -> RelayConstraintsFilter {
-        RelayConstraintsFilter {
-            location: Constraint::Any,
-            providers: Constraint::Any,
-            ownership: Constraint::Any,
-            tunnel_protocol: Constraint::Any,
-            wireguard_constraints: WireguardConstraintsFilter::new(),
-            openvpn_constraints: OpenVpnConstraintsFilter::new(),
+        // TODO(markus): Rename
+        // TODO(markus): Document
+        fn wg_constraints(
+            wireguard_constraints: WireguardConstraints,
+            obfuscation_settings: ObfuscationSettings,
+        ) -> WireguardConstraintsFilter {
+            let WireguardConstraints {
+                port,
+                ip_version,
+                use_multihop,
+                entry_location,
+            } = wireguard_constraints;
+            WireguardConstraintsFilter {
+                port,
+                ip_version,
+                use_multihop,
+                entry_location,
+                obfuscation: obfuscation_settings.selected_obfuscation,
+                udp2tcp_port: Constraint::Only(obfuscation_settings.udp2tcp.clone()),
+            }
+        }
+
+        // TODO(markus): Rename
+        // TODO(markus): Document
+        fn ovpn_constraints(
+            openvpn_constraints: OpenVpnConstraints,
+            bridge_state: BridgeState,
+            bridge_settings: BridgeSettings,
+        ) -> OpenVpnConstraintsFilter {
+            OpenVpnConstraintsFilter {
+                port: openvpn_constraints.port,
+                bridge_settings: match bridge_state {
+                    BridgeState::On | BridgeState::Auto => match bridge_settings.bridge_type {
+                        mullvad_types::relay_constraints::BridgeType::Normal => Constraint::Only(
+                            BridgeSettingsFilter::Normal(bridge_settings.normal.clone()),
+                        ),
+                        mullvad_types::relay_constraints::BridgeType::Custom => Constraint::Only(
+                            BridgeSettingsFilter::Custom(bridge_settings.custom.clone()),
+                        ),
+                    },
+                    BridgeState::Off => Constraint::Only(BridgeSettingsFilter::Off),
+                },
+            }
+        }
+
+        match &self.relay_settings {
+            RelaySettings::CustomTunnelEndpoint(_) => panic!("Honestly don't know what to do"),
+            RelaySettings::Normal(relay_constraints) => {
+                let wireguard_constraints = wg_constraints(
+                    relay_constraints.wireguard_constraints.clone(),
+                    self.obfuscation_settings.clone(),
+                );
+                let openvpn_constraints = ovpn_constraints(
+                    relay_constraints.openvpn_constraints,
+                    self.bridge_state,
+                    self.bridge_settings.clone(),
+                );
+                RelayConstraintsFilter {
+                    location: relay_constraints.location.clone(),
+                    providers: relay_constraints.providers.clone(),
+                    ownership: relay_constraints.ownership,
+                    tunnel_protocol: relay_constraints.tunnel_protocol,
+                    wireguard_constraints,
+                    openvpn_constraints,
+                }
+            }
         }
     }
 }
