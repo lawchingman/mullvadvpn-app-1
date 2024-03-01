@@ -37,10 +37,10 @@ use mullvad_types::{
     endpoint::MullvadEndpoint,
     location::{Coordinates, Location},
     relay_constraints::{
+        BridgeSettings, BridgeState, InternalBridgeConstraints, ObfuscationSettings,
         OpenVpnConstraintsFilter, RelayConstraints, RelayConstraintsFilter, RelayOverride,
         RelaySettings, ResolvedBridgeSettings, ResolvedLocationConstraint, TransportPort,
         WireguardConstraintsFilter,
-        ResolvedBridgeSettings, ResolvedLocationConstraint, TransportPort, WireguardConstraintsFilter, OpenVpnConstraintsFilter,
     },
     relay_list::{Relay, RelayList},
     settings::Settings,
@@ -57,6 +57,41 @@ use crate::parsed_relays::ParsedRelays;
 
 use self::matcher::AnyTunnelMatcher;
 
+/// [`RETRY_ORDER`] defines the order of constraints which we would like to try to apply
+/// in successive retry attempts: https://linear.app/mullvad/issue/DES-543/optimize-order-of-connection-parameters-when-trying-to-connect
+static RETRY_ORDER: Lazy<Vec<RelayConstraintsFilter>> = Lazy::new(|| {
+    use mullvad_types::relay_constraints::builder::{any, openvpn, wireguard};
+    vec![
+        // 0
+        any().build(),
+        // 1
+        wireguard::new().build(),
+        // 2
+        wireguard::new().port(443).build(),
+        // 3
+        wireguard::new()
+            .ip_version(wireguard::IpVersion::V6)
+            .build(),
+        // 4
+        openvpn::new()
+            .transport_protocol(openvpn::TransportProtocol::Tcp)
+            .port(443)
+            .build(),
+        // 5
+        wireguard::new().udp2tcp().build(),
+        // 6
+        wireguard::new()
+            .udp2tcp()
+            .ip_version(wireguard::IpVersion::V6)
+            .build(),
+        // 7
+        openvpn::new()
+            .transport_protocol(openvpn::TransportProtocol::Tcp)
+            .bridge()
+            .build(),
+    ]
+});
+
 // TODO(markus): Where does this belong?
 const DATE_TIME_FORMAT_STR: &str = "%Y-%m-%d %H:%M:%S%.3f";
 
@@ -64,7 +99,6 @@ const DATE_TIME_FORMAT_STR: &str = "%Y-%m-%d %H:%M:%S%.3f";
 pub struct RelaySelector {
     config: Arc<Mutex<SelectorConfig>>,
     parsed_relays: Arc<Mutex<ParsedRelays>>,
-    // strategy: Option<impl RelaySelectorStrategy> // <- Has to be a type paramter of `RelaySelector`
 }
 
 #[derive(Clone)]
@@ -166,90 +200,6 @@ impl NormalSelectedRelay {
             exit_relay,
             endpoint,
         }
-    }
-}
-
-#[derive(Clone)]
-/// Define a strategy for the [`RelaySelector`] to use when deciding which relay
-/// to return.
-pub struct DefaultConstraints {
-    /// This is the default constraints for tunnel endpoints. When the user
-    /// hasn't selected any specific constraints, these constraints will take
-    /// effect.
-    ///
-    /// # Note
-    ///
-    /// They are documented in further detail in `docs/relay-selector.md`.
-    stratgegy: Vec<RelayConstraintsFilter>,
-}
-
-// TODO(markus): Remove this `allow`
-#[allow(dead_code)]
-impl DefaultConstraints {
-    pub fn new() -> DefaultConstraints {
-        use mullvad_types::relay_constraints::builder;
-        // Define the order of constraints which we would like to try to apply
-        // in successive retry attemps:
-        // https://linear.app/mullvad/issue/DES-543/optimize-order-of-connection-parameters-when-trying-to-connect
-        let default_constraints: Vec<RelayConstraintsFilter> = vec![
-            // 0
-            builder::any().build(),
-            // 1
-            builder::wireguard::new().build(),
-            // 2
-            builder::wireguard::new().port(443).build(),
-            // 3
-            builder::wireguard::new()
-                .ip_version(builder::wireguard::IpVersion::V6)
-                .build(),
-            // 4
-            builder::openvpn::new()
-                .transport_protocol(builder::openvpn::TransportProtocol::Tcp)
-                .port(443)
-                .build(),
-            // 5 (UDP-over-TCP is not a relay constraint, but it is only available for Wireguard)
-            builder::wireguard::new().udp2tcp().build(),
-            // 6 Same argument as in 5
-            builder::wireguard::new()
-                .udp2tcp()
-                .ip_version(builder::wireguard::IpVersion::V6)
-                .build(),
-            // 7
-            builder::openvpn::new()
-                .transport_protocol(builder::openvpn::TransportProtocol::Tcp)
-                .bridge()
-                .build(),
-        ];
-
-        DefaultConstraints {
-            stratgegy: default_constraints,
-        }
-    }
-}
-
-trait RelaySelectorStrategy {
-    /// TODO(markus): Document this
-    fn resolve(
-        &self,
-        other: RelayConstraintsFilter,
-        retry_attempt: usize,
-    ) -> Option<RelayConstraintsFilter>;
-}
-
-impl RelaySelectorStrategy for DefaultConstraints {
-    /// TODO(markus): Document this
-    /// TODO(markus): Make more efficient
-    fn resolve(
-        &self,
-        other: RelayConstraintsFilter,
-        retry_attempt: usize,
-    ) -> Option<RelayConstraintsFilter> {
-        self.stratgegy
-            .clone()
-            .into_iter()
-            .cycle()
-            .filter_map(|constraint| constraint.intersection(other.clone()))
-            .nth(retry_attempt)
     }
 }
 
@@ -383,10 +333,13 @@ impl RelaySelector {
         retry_attempt: usize,
     ) -> Result<GetRelay, Error> {
         // Merge user preferences with the relay selector's default preferences.
-        let strategy = DefaultConstraints::new();
-        let _constraints = strategy
-            .resolve(user_preferences.clone(), retry_attempt)
-            .unwrap_or(user_preferences.clone());
+        let _constraints = RETRY_ORDER
+            .clone()
+            .into_iter()
+            .cycle()
+            .filter_map(|constraint| constraint.intersection(user_preferences.clone()))
+            .nth(retry_attempt);
+
         let constraints = RelayConstraints::new();
         let relay = Self::get_tunnel_endpoint(
             parsed_relays,
