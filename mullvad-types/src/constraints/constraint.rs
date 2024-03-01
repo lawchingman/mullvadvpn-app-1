@@ -81,6 +81,11 @@ impl<T> Constraint<T> {
             Constraint::Only(value) => Some(value),
         }
     }
+
+    /// Returns true if the constraint is an `Only` and the value inside of it matches a predicate.
+    pub fn is_only_and(self, f: impl FnOnce(T) -> bool) -> bool {
+        self.option().is_some_and(f)
+    }
 }
 
 impl<T: PartialEq> Constraint<T> {
