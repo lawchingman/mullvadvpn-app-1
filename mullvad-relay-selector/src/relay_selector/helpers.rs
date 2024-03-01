@@ -2,7 +2,7 @@
 
 // TODO(markus): Put all functions which does not use the RelaySelector/`self` paramter here.
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 
 use mullvad_types::{
     constraints::Constraint,
@@ -12,8 +12,8 @@ use mullvad_types::{
 };
 use talpid_types::net::{obfuscation::ObfuscatorConfig, proxy::CustomProxy};
 
-use super::matcher::{EndpointMatcher, RelayMatcher, WireguardMatcher};
-use super::{NormalSelectedRelay, SelectedObfuscator};
+use super::matcher::WireguardMatcher;
+use super::SelectedObfuscator;
 use crate::{
     constants::{WIREGUARD_EXIT_IP_VERSION, WIREGUARD_EXIT_PORT},
     error::Error,
@@ -74,32 +74,6 @@ pub fn pick_random_bridge(data: &BridgeEndpointData, relay: &Relay) -> Option<Cu
     }
     shadowsocks_endpoint
         .map(|endpoint_data| endpoint_data.to_proxy_settings(relay.ipv4_addr_in.into()))
-}
-
-/// Returns a random relay endpoint if any is matching the given constraints.
-/// TODO(markus): This is apparently a hot path!
-pub fn get_tunnel_endpoint_internal<'a, T, R>(
-    relays: R,
-    matcher: &RelayMatcher<T>,
-) -> Result<NormalSelectedRelay, Error>
-where
-    T: EndpointMatcher,
-    R: Iterator<Item = &'a Relay> + Clone,
-{
-    let matching_relays: Vec<Relay> = matcher.filter_matching_relay_list(relays);
-
-    // TODO(markus): This should be at the top of the callchain
-    pick_random_relay(&matching_relays)
-        .and_then(|selected_relay| {
-            let endpoint = matcher.mullvad_endpoint(selected_relay);
-            let addr_in = endpoint
-                .as_ref()
-                .map(|endpoint| endpoint.to_endpoint().address.ip())
-                .unwrap_or_else(|| IpAddr::from(selected_relay.ipv4_addr_in));
-            log::info!("Selected relay {} at {}", selected_relay.hostname, addr_in);
-            endpoint.map(|endpoint| NormalSelectedRelay::new(endpoint, selected_relay.clone()))
-        })
-        .ok_or(Error::NoRelay)
 }
 
 pub fn wireguard_exit_matcher(wg: WireguardEndpointData) -> WireguardMatcher {

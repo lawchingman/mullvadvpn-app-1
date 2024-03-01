@@ -203,9 +203,6 @@ impl SelectorConfig {
     }
 }
 
-// TODO(markus): Implement
-// impl From<SelectorConfig> for RelayConstraintsFilter {}
-
 /// The return type of `get_relay`.
 pub enum GetRelay {
     Wireguard {
@@ -402,12 +399,27 @@ impl RelaySelector {
             .nth(retry_attempt);
 
         let constraints = RelayConstraints::new();
-        let relay = Self::get_tunnel_endpoint(
+        // Filter among all valid relays
+        let relays = Self::get_tunnel_endpoints(
             parsed_relays,
             &constraints,
             config.bridge_state,
             &config.custom_lists,
-        )?;
+        );
+        // Pick one of the valid relays.
+        let relay = helpers::pick_random_relay(&relays).unwrap().clone();
+        // TODO(markus): Not valid!
+        let matcher = RelayMatcher::new(
+            constraints.clone(),
+            parsed_relays.parsed_list().openvpn.clone(),
+            parsed_relays.parsed_list().wireguard.clone(),
+            &config.custom_lists,
+        );
+        // Fill in the connection details of the chosen relay.
+        let relay = matcher
+            .mullvad_endpoint(&relay)
+            .map(|endpoint| NormalSelectedRelay::new(endpoint, relay.clone()))
+            .unwrap();
 
         match relay.endpoint {
             MullvadEndpoint::OpenVpn(endpoint) => {
@@ -454,12 +466,14 @@ impl RelaySelector {
     /// Returns a random relay and relay endpoint matching the given constraints and with
     /// preferences applied.
     #[cfg_attr(target_os = "android", allow(unused_variables))]
-    fn get_tunnel_endpoint(
+    fn get_tunnel_endpoints(
         parsed_relays: &ParsedRelays,
         relay_constraints: &RelayConstraints, // TODO(markus): This should be the intersection between user preferences and our defaults
         bridge_state: BridgeState,
         custom_lists: &CustomListsSettings,
-    ) -> Result<NormalSelectedRelay, Error> {
+    ) -> Vec<Relay> {
+        let relays = parsed_relays.relays();
+
         #[cfg(target_os = "android")]
         {
             let matcher = WireguardMatcher::new_matcher(
@@ -493,7 +507,8 @@ impl RelaySelector {
                     });
                 }
 
-                helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
+                matcher.filter_matching_relay_list(relays)
+                // helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
             }
             Constraint::Only(TunnelType::Wireguard) => {
                 let matcher = WireguardMatcher::new_matcher(
@@ -503,7 +518,8 @@ impl RelaySelector {
                     custom_lists,
                 );
 
-                helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
+                matcher.filter_matching_relay_list(relays)
+                // helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
             }
             Constraint::Any => {
                 let matcher = RelayMatcher::new(
@@ -512,7 +528,8 @@ impl RelaySelector {
                     parsed_relays.parsed_list().wireguard.clone(),
                     custom_lists,
                 );
-                helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
+                //helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
+                matcher.filter_matching_relay_list(relays)
             }
         }
     }

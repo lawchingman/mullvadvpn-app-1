@@ -71,7 +71,7 @@ impl<T: EndpointMatcher> RelayMatcher<T> {
         &self,
         relays: R,
     ) -> Vec<Relay> {
-        relays
+        let shortlist = relays
             // Filter on active relays
             .filter(|relay| filter_on_active(relay))
             // Filter by location
@@ -81,34 +81,20 @@ impl<T: EndpointMatcher> RelayMatcher<T> {
             // Filter by providers
             .filter(|relay| filter_on_providers(&self.providers, relay))
             // Filter on relay type & relay specific properties
-            .filter(|relay| self.endpoint_matcher.is_matching_relay(relay))
-            // TODO(markus): Investigate why this is needed?
-            // .filter(|relay| filter_on_location(&self.locations, relay, ignore_include_in_country))
+            .filter(|relay| self.endpoint_matcher.is_matching_relay(relay));
+
+        // The last filtering to be done is on the `include_in_country` attribute found on each
+        // relay. A regular, user-facing relay will have `include_in_country` set to true.
+        // If a relay has `include_in_country` set to false, they are purposely hidden than
+        // other relays. We should only consider those if there are no regular candidates left.
+        let ignore_include_in_country = !shortlist.clone().any(|relay| relay.include_in_country);
+        shortlist
+            .filter(|relay| {
+                self.locations
+                    .matches_with_opts(relay, ignore_include_in_country)
+            })
             .cloned()
             .collect()
-
-        // let ignore_include_in_country = !matches.clone().any(|relay| relay.include_in_country);
-        // matches
-        //     .filter(|relay| self.post_filter_matching_relay(relay, ignore_include_in_country))
-        //     .cloned()
-        //     .collect()
-    }
-
-    /// Filter a relay based on constraints and endpoint type, 1st pass.
-    // TODO(markus): Turn this into a function which can simply be passed to `iter.filter`
-    fn pre_filter_matching_relay(&self, relay: &Relay) -> bool {
-        filter_on_active(relay)
-            && filter_on_providers(&self.providers, relay)
-            && filter_on_ownership(&self.ownership, relay)
-            && filter_on_location(&self.locations, relay)
-            && self.endpoint_matcher.is_matching_relay(relay)
-    }
-
-    /// Filter a relay based on constraints and endpoint type, 2nd pass.
-    // TODO(markus): Turn this into a function which can simply be passed to `iter.filter`
-    fn post_filter_matching_relay(&self, relay: &Relay, ignore_include_in_country: bool) -> bool {
-        self.locations
-            .matches_with_opts(relay, ignore_include_in_country)
     }
 
     pub fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint> {
@@ -455,9 +441,8 @@ pub const fn filter_on_active(relay: &Relay) -> bool {
 
 /// Returns whether `relay` satisfy the location constraint posed by `filter`.
 pub fn filter_on_location(filter: &Constraint<ResolvedLocationConstraint>, relay: &Relay) -> bool {
-    filter.matches_with_opts(
-        relay, true, /* TODO(markus): What is this parameter, and why is it needed? */
-    )
+    let ignore_include_in_countries = true;
+    filter.matches_with_opts(relay, ignore_include_in_countries)
 }
 
 /// Returns whether `relay` satisfy the ownership constraint posed by `filter`.
