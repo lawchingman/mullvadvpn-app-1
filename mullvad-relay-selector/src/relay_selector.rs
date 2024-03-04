@@ -41,7 +41,7 @@ use mullvad_types::{
     location::{Coordinates, Location},
     relay_constraints::{
         BridgeSettings, BridgeSettingsFilter, BridgeState, InternalBridgeConstraints,
-        ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter, RelayConstraints,
+        ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter,
         RelayConstraintsFilter, RelayOverride, RelaySettings, ResolvedBridgeSettings,
         SelectedObfuscation, WireguardConstraints, WireguardConstraintsFilter,
     },
@@ -59,7 +59,8 @@ use crate::parsed_relays::ParsedRelays;
 
 use self::matcher::{AnyTunnelMatcher, RelayDetailer};
 
-/// [`RETRY_ORDER`] defines the order of constraints which we would like to try to apply
+/// [`RETRY_ORDER`] defines an ordered set of relay parameters which the relay selector should prioritize on
+/// successive connection attempts.
 /// in successive retry attempts: https://linear.app/mullvad/issue/DES-543/optimize-order-of-connection-parameters-when-trying-to-connect
 static RETRY_ORDER: Lazy<Vec<RelayConstraintsFilter>> = Lazy::new(|| {
     use mullvad_types::relay_constraints::builder::{any, openvpn, wireguard};
@@ -337,8 +338,11 @@ impl RelaySelector {
         let parsed_relays = &self.parsed_relays.lock().unwrap();
         let config = self.config.lock().unwrap();
         let near_location = match &config.relay_settings {
-            RelaySettings::Normal(settings) => {
-                Self::get_relay_midpoint(parsed_relays, settings, &config)
+            RelaySettings::Normal(_) => {
+                // TODO(markus): Find a way to go from `RelaySettings::Normal(settings) =>
+                // RelayConstraintsFilter`.
+                let user_preferences = config.blah();
+                Self::get_relay_midpoint(parsed_relays, &user_preferences, &config)
             }
             _ => None,
         };
@@ -536,13 +540,12 @@ impl RelaySelector {
     fn get_wireguard_entry_relay(
         exit_relay: Relay,
         parsed_relays: &ParsedRelays,
-        constraints: &RelayConstraints,
+        constraints: &RelayConstraintsFilter,
         custom_lists: &CustomListsSettings,
     ) -> Option<Relay> {
         // TODO(markus) This should be used to get a set of valid entry relays.
         let entry_matcher = WireguardMatcher::new_entry_matcher(
             constraints.clone(),
-            constraints.wireguard_constraints.clone(),
             parsed_relays.parsed_list().wireguard.clone(),
             custom_lists,
         );
@@ -550,7 +553,6 @@ impl RelaySelector {
         // TODO(markus) This should be used to get a set of valid entry relays.
         let exit_matcher = WireguardMatcher::new_exit_matcher(
             constraints.clone(),
-            constraints.wireguard_constraints.clone(),
             parsed_relays.parsed_list().wireguard.clone(),
             custom_lists,
         );
@@ -716,7 +718,7 @@ impl RelaySelector {
     /// relays match the constraints.
     fn get_relay_midpoint(
         parsed_relays: &ParsedRelays,
-        constraints: &RelayConstraints,
+        constraints: &RelayConstraintsFilter,
         config: &SelectorConfig,
     ) -> Option<Coordinates> {
         if constraints.location.is_any() {
