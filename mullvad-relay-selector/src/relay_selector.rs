@@ -399,7 +399,10 @@ impl RelaySelector {
         let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints);
         match relay.endpoint {
             MullvadEndpoint::OpenVpn(endpoint) => {
-                let bridge = Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config)?;
+                let bridge = helpers::should_use_bridge(config)
+                    .then(|| Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config))
+                    .transpose()?
+                    .flatten();
                 Ok(GetRelay::OpenVpn { relay, bridge })
             }
             MullvadEndpoint::Wireguard(ref endpoint) => {
@@ -441,7 +444,7 @@ impl RelaySelector {
     fn get_normal_relay_inner(
         parsed_relays: &ParsedRelays,
         config: &SelectorConfig,
-        constraints: &RelayConstraints, // TODO(markus): This should be the intersection between user preferences and our defaults
+        constraints: &RelayConstraints,
     ) -> NormalSelectedRelay {
         // Filter among all valid relays
         let relays = Self::get_tunnel_endpoints(
@@ -526,8 +529,6 @@ impl RelaySelector {
             exit_matcher.set_peer(entry_relay);
             Ok(exit_matcher.filter_matching_relay_list(parsed_relays.relays()))
         } else {
-            let _exit_relays = exit_matcher.filter_matching_relay_list(parsed_relays.relays());
-
             Ok(entry_matcher.filter_matching_relay_list(parsed_relays.relays()))
         }
     }
@@ -575,31 +576,26 @@ impl RelaySelector {
             .bridge_settings
             .resolve()
             .map_err(Error::InvalidBridgeSettings)?;
-        let bridge = if helpers::should_use_bridge(config) {
-            match protocol {
-                TransportProtocol::Udp => {
-                    log::error!("Can not use OpenVPN bridges over UDP");
-                    return Err(Error::NoBridge);
-                }
-                TransportProtocol::Tcp => {
-                    let location = relay
-                        .exit_relay
-                        .location
-                        .as_ref()
-                        .expect("Relay has no location set");
-                    Self::get_bridge_for(
-                        parsed_relays,
-                        &bridge_settings,
-                        location,
-                        &config.custom_lists,
-                    )
-                }
-            }
-        } else {
-            None
-        };
 
-        Ok(bridge)
+        match protocol {
+            TransportProtocol::Udp => {
+                log::error!("Can not use OpenVPN bridges over UDP");
+                Err(Error::NoBridge)
+            }
+            TransportProtocol::Tcp => {
+                let location = relay
+                    .exit_relay
+                    .location
+                    .as_ref()
+                    .expect("Relay has no location set");
+                Ok(Self::get_bridge_for(
+                    parsed_relays,
+                    &bridge_settings,
+                    location,
+                    &config.custom_lists,
+                ))
+            }
+        }
     }
 
     // TODO(markus): Decompose this function
@@ -610,6 +606,9 @@ impl RelaySelector {
         custom_lists: &CustomListsSettings,
     ) -> Option<SelectedBridge> {
         match *config {
+            ResolvedBridgeSettings::Custom(settings) => {
+                Some(SelectedBridge::Custom(settings.clone()))
+            }
             ResolvedBridgeSettings::Normal(settings) => {
                 let bridge_constraints = InternalBridgeConstraints {
                     location: settings.location.clone(),
@@ -626,9 +625,6 @@ impl RelaySelector {
                     custom_lists,
                 )
                 .map(|(settings, relay)| SelectedBridge::Normal { settings, relay })
-            }
-            ResolvedBridgeSettings::Custom(settings) => {
-                Some(SelectedBridge::Custom(settings.clone()))
             }
         }
     }
