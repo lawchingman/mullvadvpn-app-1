@@ -8,7 +8,7 @@ use mullvad_types::{
     relay_constraints::{
         BridgeState, InternalBridgeConstraints, LocationConstraint, OpenVpnConstraints, Ownership,
         Providers, RelayConstraints, RelayConstraintsFilter, ResolvedLocationConstraint,
-        TransportPort, WireguardConstraints,
+        TransportPort, WireguardConstraints, WireguardConstraintsFilter, OpenVpnConstraintsFilter,
     },
     relay_list::{
         OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData, WireguardEndpointData,
@@ -113,8 +113,10 @@ impl Detailer for AnyTunnelMatcher {
 }
 
 impl RelayMatcher<AnyTunnelMatcher> {
+    // TODO: Use constraint filter instead ..
     pub fn new(
-        constraints: RelayConstraints,
+        constraints: RelayConstraintsFilter,
+        //c onstraints: RelayConstraints,
         openvpn_data: OpenVpnEndpointData,
         brige_state: BridgeState,
         wireguard_data: WireguardEndpointData,
@@ -192,7 +194,7 @@ pub trait EndpointMatcher: Clone {
 
 impl EndpointMatcher for OpenVpnMatcher {
     fn is_matching_relay(&self, relay: &Relay) -> bool {
-        filter_openvpn(relay) && openvpn_filter_on_port(self.constraints, &self.data)
+        filter_openvpn(relay) && openvpn_filter_on_port(self.constraints.port, &self.data)
     }
 }
 #[derive(Clone)]
@@ -230,7 +232,7 @@ pub struct WireguardMatcher {
 }
 
 impl WireguardMatcher {
-    pub fn new(constraints: WireguardConstraints, data: WireguardEndpointData) -> Self {
+    pub fn new(constraints: WireguardConstraintsFilter, data: WireguardEndpointData) -> Self {
         Self {
             peer: None,
             port: constraints.port,
@@ -241,20 +243,19 @@ impl WireguardMatcher {
 
     pub fn new_matcher(
         // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
-        relay_constraints: RelayConstraints,
-        constraints: WireguardConstraints,
+        constraints: RelayConstraintsFilter,
         data: WireguardEndpointData,
         // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
         custom_lists: &CustomListsSettings,
     ) -> RelayMatcher<Self> {
         RelayMatcher {
             locations: ResolvedLocationConstraint::from_constraint(
-                relay_constraints.location,
+                constraints.location,
                 custom_lists,
             ),
-            providers: relay_constraints.providers,
-            ownership: relay_constraints.ownership,
-            endpoint_matcher: WireguardMatcher::new(constraints, data),
+            providers: constraints.providers,
+            ownership: constraints.ownership,
+            endpoint_matcher: WireguardMatcher::new(constraints.wireguard_constraints, data),
         }
     }
 
@@ -264,15 +265,13 @@ impl WireguardMatcher {
     ///
     /// TODO(markus): Can probably be removed if location is lifted out of [`RelayMatcher`].
     pub fn new_entry_matcher(
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
-        relay_constraints: RelayConstraints,
-        constraints: WireguardConstraints,
+        constraints: RelayConstraintsFilter,
         data: WireguardEndpointData,
         // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
         custom_lists: &CustomListsSettings,
     ) -> RelayMatcher<Self> {
         let locations = ResolvedLocationConstraint::from_constraint(
-            relay_constraints
+            constraints
                 .wireguard_constraints
                 .entry_location
                 .clone(),
@@ -281,9 +280,9 @@ impl WireguardMatcher {
 
         RelayMatcher {
             locations,
-            providers: relay_constraints.providers,
-            ownership: relay_constraints.ownership,
-            endpoint_matcher: WireguardMatcher::new(constraints, data),
+            providers: constraints.providers,
+            ownership: constraints.ownership,
+            endpoint_matcher: WireguardMatcher::new(constraints.wireguard_constraints, data),
         }
     }
 
@@ -292,15 +291,13 @@ impl WireguardMatcher {
     ///
     /// TODO(markus): Can probably be removed if location is lifted out of [`RelayMatcher`].
     pub fn new_exit_matcher(
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
-        relay_constraints: RelayConstraints,
-        constraints: WireguardConstraints,
+        constraints: RelayConstraintsFilter,
         data: WireguardEndpointData,
         // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
         custom_lists: &CustomListsSettings,
     ) -> RelayMatcher<Self> {
         let mut matcher =
-            Self::new_matcher(relay_constraints, constraints, data.clone(), custom_lists);
+            Self::new_matcher(constraints, data.clone(), custom_lists);
         matcher.endpoint_matcher = helpers::wireguard_exit_matcher(data);
         matcher
     }
@@ -395,13 +392,13 @@ impl EndpointMatcher for WireguardMatcher {
 
 #[derive(Debug, Clone)]
 pub struct OpenVpnMatcher {
-    pub constraints: OpenVpnConstraints,
+    pub constraints: OpenVpnConstraintsFilter,
     pub data: OpenVpnEndpointData,
 }
 
 impl OpenVpnMatcher {
     pub fn new(
-        mut constraints: OpenVpnConstraints,
+        mut constraints: OpenVpnConstraintsFilter,
         data: OpenVpnEndpointData,
         bridge_state: BridgeState,
     ) -> Self {
@@ -508,14 +505,14 @@ pub const fn filter_bridge(relay: &Relay) -> bool {
 
 /// Returns wheter a relay (endpoint) satisfy the port constraints (transport protocol + port
 /// number) posed by `filter`.
-fn openvpn_filter_on_port(filter: OpenVpnConstraints, endpoint: &OpenVpnEndpointData) -> bool {
+fn openvpn_filter_on_port(port: Constraint<TransportPort>, endpoint: &OpenVpnEndpointData) -> bool {
     let compatible_port =
         |transport_port: TransportPort, endpoint: &OpenVpnEndpoint| match transport_port.port {
             Constraint::Any => true,
             Constraint::Only(port) => port == endpoint.port,
         };
 
-    match filter.port {
+    match port {
         Constraint::Any => true,
         Constraint::Only(transport_port) => endpoint
             .ports

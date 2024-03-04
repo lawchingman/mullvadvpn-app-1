@@ -224,6 +224,7 @@ impl RelayConstraints {
     }
 }
 
+// TODO(markus): Move to `mullvad-relay-selector/query.rs`
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RelayConstraintsFilter {
     pub location: Constraint<LocationConstraint>,
@@ -727,6 +728,7 @@ pub struct WireguardConstraints {
     pub entry_location: Constraint<LocationConstraint>,
 }
 
+// TODO(markus): Move to `mullvad-relay-selector/query.rs`
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct WireguardConstraintsFilter {
     pub port: Constraint<u16>,
@@ -735,6 +737,13 @@ pub struct WireguardConstraintsFilter {
     pub entry_location: Constraint<LocationConstraint>,
     pub obfuscation: SelectedObfuscation,
     pub udp2tcp_port: Constraint<Udp2TcpObfuscationSettings>,
+}
+
+impl WireguardConstraintsFilter {
+    pub fn multihop(&self) -> bool {
+        // assert_ne!(self.use_multihop, Constraint::Any);
+        matches!(self.use_multihop, Constraint::Only(true))
+    }
 }
 
 impl WireguardConstraintsFilter {
@@ -766,6 +775,7 @@ impl Intersection for WireguardConstraintsFilter {
     }
 }
 
+// TODO(markus): Move to `mullvad-relay-selector/query.rs`
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct OpenVpnConstraintsFilter {
     pub port: Constraint<TransportPort>,
@@ -797,6 +807,7 @@ impl Intersection for OpenVpnConstraintsFilter {
     }
 }
 
+// TODO(markus): Move to `mullvad-relay-selector/query.rs`
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum BridgeSettingsFilter {
     Off,

@@ -374,15 +374,14 @@ impl RelaySelector {
             RelaySettings::Normal(_) => {
                 let user_preferences = config.blah();
                 // Merge user preferences with the relay selector's default preferences.
-                let _constraints = RETRY_ORDER
+                let constraints = RETRY_ORDER
                     .clone()
                     .into_iter()
                     .cycle()
                     .filter_map(|constraint| constraint.intersection(user_preferences.clone()))
-                    .nth(retry_attempt);
-                // TODO(markus): Get rid of this
-                let constraints = RelayConstraints::new();
-                Self::get_normal_relay(parsed_relays, &config, &user_preferences, &constraints)
+                    .nth(retry_attempt)
+                    .unwrap();
+                Self::get_normal_relay(parsed_relays, &config, &constraints)
             }
         }
     }
@@ -392,9 +391,7 @@ impl RelaySelector {
     fn get_normal_relay(
         parsed_relays: &ParsedRelays,
         config: &SelectorConfig,
-        // TODO(markus): Use this argument!
-        _user_preferences: &RelayConstraintsFilter,
-        constraints: &RelayConstraints, // TODO(markus): Remove this argument
+        constraints: &RelayConstraintsFilter,
     ) -> Result<GetRelay, Error> {
         let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints)
             .ok_or(Error::NoRelay)?;
@@ -447,7 +444,7 @@ impl RelaySelector {
     fn get_normal_relay_inner(
         parsed_relays: &ParsedRelays,
         config: &SelectorConfig,
-        constraints: &RelayConstraints,
+        constraints: &RelayConstraintsFilter,
     ) -> Option<NormalSelectedRelay> {
         // Filter among all valid relays
         let relays = Self::get_tunnel_endpoints(
@@ -497,7 +494,7 @@ impl RelaySelector {
     /// preferences applied.
     fn get_tunnel_endpoints(
         parsed_relays: &ParsedRelays,
-        relay_constraints: &RelayConstraints, // TODO(markus): This should be the intersection between user preferences and our defaults
+        relay_constraints: &RelayConstraintsFilter,
         bridge_state: BridgeState,
         custom_lists: &CustomListsSettings,
     ) -> Vec<Relay> {
