@@ -1328,6 +1328,7 @@ pub mod builder {
         // Re-exports
         pub use super::LocationConstraint;
         pub use talpid_types::net::IpVersion;
+        use talpid_types::net::TunnelType;
 
         /// Internal builder state for a [`WireguardConstraints`] configuration.
         ///
@@ -1342,10 +1343,12 @@ pub mod builder {
         /// Create a new Wireguard-oriented [`RelayConstraintBuilder`] with
         /// otherwise unopinionated defaults.
         pub const fn new() -> RelayConstraintBuilder<Wireguard<Any, Any>> {
-            RelayConstraintBuilder::new(Wireguard {
+            let mut builder = RelayConstraintBuilder::new(Wireguard {
                 multihop: Any,
                 obfuscation: Any,
-            })
+            });
+            builder.constraints.tunnel_protocol = Constraint::Only(TunnelType::Wireguard);
+            builder
         }
 
         // This impl-block is quantified over all configurations
@@ -1431,6 +1434,7 @@ pub mod builder {
         };
         // Re-exports
         pub use talpid_types::net::TransportProtocol;
+        use talpid_types::net::TunnelType;
 
         /// Internal builder state for a [`OpenVPNConstraints`] configuration.
         ///
@@ -1446,10 +1450,12 @@ pub mod builder {
         /// Create a new OpenVPN-oriented [`RelayConstraintBuilder`] with
         /// otherwise unopinionated defaults.
         pub const fn new() -> RelayConstraintBuilder<OpenVPN<Any, Any>> {
-            RelayConstraintBuilder::new(OpenVPN {
+            let mut builder = RelayConstraintBuilder::new(OpenVPN {
                 transport_port: Any,
                 bridge_settings: Any,
-            })
+            });
+            builder.constraints.tunnel_protocol = Constraint::Only(TunnelType::OpenVpn);
+            builder
         }
 
         // This impl-block is quantified over all configurations
