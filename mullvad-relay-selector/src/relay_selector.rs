@@ -37,13 +37,13 @@ use matcher::{BridgeMatcher, RelayMatcher, WireguardMatcher};
 use mullvad_types::{
     constraints::{Constraint, Intersection, Set},
     custom_list::CustomListsSettings,
-    endpoint::MullvadEndpoint,
+    endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     location::{Coordinates, Location},
     relay_constraints::{
         BridgeSettings, BridgeSettingsFilter, BridgeState, InternalBridgeConstraints,
         ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter, RelayConstraints,
         RelayConstraintsFilter, RelayOverride, RelaySettings, ResolvedBridgeSettings,
-        WireguardConstraints, WireguardConstraintsFilter,
+        SelectedObfuscation, WireguardConstraints, WireguardConstraintsFilter,
     },
     relay_list::{Relay, RelayList},
     settings::Settings,
@@ -426,13 +426,14 @@ impl RelaySelector {
                     let obfuscator_relay = entry.clone().unwrap_or(relay.exit_relay.clone());
                     let udp2tcp_ports = parsed_relays.parsed_list().wireguard.udp2tcp_ports.clone();
 
-                    helpers::get_obfuscator_inner(
+                    Self::get_obfuscator(
                         &udp2tcp_ports,
+                        // TODO(markus): Pass down the merge between user preferences and our
+                        // defaults.
                         &config.obfuscation_settings,
                         &obfuscator_relay,
                         endpoint,
-                        0, // TODO(markus): Get id of this! Should be defined by `user_preferences`.
-                    )?
+                    )
                 };
 
                 Ok(GetRelay::Wireguard {
@@ -569,6 +570,23 @@ impl RelaySelector {
         .as_ref()
         .and_then(|relays| helpers::pick_random_relay(relays))
         .cloned()
+    }
+
+    pub fn get_obfuscator(
+        udp2tcp_ports: &[u16],
+        obfuscation_settings: &ObfuscationSettings,
+        relay: &Relay,
+        endpoint: &MullvadWireguardEndpoint,
+    ) -> Option<SelectedObfuscator> {
+        match obfuscation_settings.selected_obfuscation {
+            SelectedObfuscation::Off | SelectedObfuscation::Auto => None,
+            SelectedObfuscation::Udp2Tcp => helpers::get_udp2tcp_obfuscator(
+                udp2tcp_ports,
+                &obfuscation_settings.udp2tcp,
+                relay,
+                endpoint,
+            ),
+        }
     }
 
     /// TODO(markus): Document

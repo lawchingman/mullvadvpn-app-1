@@ -7,17 +7,16 @@ use std::net::SocketAddr;
 use mullvad_types::{
     constraints::Constraint,
     endpoint::MullvadWireguardEndpoint,
-    relay_constraints::{ObfuscationSettings, SelectedObfuscation, Udp2TcpObfuscationSettings},
+    relay_constraints::Udp2TcpObfuscationSettings,
     relay_list::{BridgeEndpointData, Relay, RelayEndpointData, WireguardEndpointData},
 };
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use talpid_types::net::{obfuscation::ObfuscatorConfig, proxy::CustomProxy};
 
 use super::matcher::WireguardMatcher;
-use super::SelectedObfuscator;
 use crate::{
     constants::{WIREGUARD_EXIT_IP_VERSION, WIREGUARD_EXIT_PORT},
-    error::Error,
-    SelectorConfig,
+    SelectedObfuscator, SelectorConfig,
 };
 
 /// Picks a relay using [Self::pick_random_relay_fn], using the `weight` member of each relay
@@ -34,9 +33,8 @@ pub fn pick_random_relay_fn<RelayType>(
     relays: &[RelayType],
     weight_fn: impl Fn(&RelayType) -> u64,
 ) -> Option<&RelayType> {
-    use rand::{seq::SliceRandom, Rng};
     let total_weight: u64 = relays.iter().map(&weight_fn).sum();
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
     if total_weight == 0 {
         relays.choose(&mut rng)
     } else {
@@ -58,7 +56,6 @@ pub fn pick_random_relay_fn<RelayType>(
 /// Picks a random bridge from a relay.
 /// TODO(markus): Rip out state/RNG?
 pub fn pick_random_bridge(data: &BridgeEndpointData, relay: &Relay) -> Option<CustomProxy> {
-    use rand::seq::SliceRandom;
     if relay.endpoint_data != RelayEndpointData::Bridge {
         return None;
     }
@@ -83,52 +80,22 @@ pub fn wireguard_exit_matcher(wg: WireguardEndpointData) -> WireguardMatcher {
     tunnel
 }
 
-pub fn get_obfuscator_inner(
-    udp2tcp_ports: &[u16],
-    obfuscation_settings: &ObfuscationSettings,
-    relay: &Relay,
-    endpoint: &MullvadWireguardEndpoint,
-    retry_attempt: usize,
-) -> Result<Option<SelectedObfuscator>, Error> {
-    match obfuscation_settings.selected_obfuscation {
-        SelectedObfuscation::Off => Ok(None),
-        SelectedObfuscation::Udp2Tcp => Ok(get_udp2tcp_obfuscator(
-            udp2tcp_ports,
-            &obfuscation_settings.udp2tcp,
-            relay,
-            endpoint,
-            retry_attempt,
-        )),
-        SelectedObfuscation::Auto => {
-            let obfuscation_settings = &obfuscation_settings.udp2tcp;
-            match get_auto_obfuscator_retry_attempt(retry_attempt) {
-                Some(obfuscation_attempt) => Ok(get_udp2tcp_obfuscator(
-                    udp2tcp_ports,
-                    obfuscation_settings,
-                    relay,
-                    endpoint,
-                    obfuscation_attempt,
-                )),
-                None => Ok(None),
-            }
-        }
-    }
-}
-
 pub fn get_udp2tcp_obfuscator(
-    udp2tcp_ports: &[u16], // TODO(markus): Create/use existing type that reflects that these are ports?
+    udp2tcp_ports: &[u16],
     obfuscation_settings: &Udp2TcpObfuscationSettings,
     relay: &Relay,
     endpoint: &MullvadWireguardEndpoint,
-    retry_attempt: usize,
 ) -> Option<SelectedObfuscator> {
     let udp2tcp_endpoint = if obfuscation_settings.port.is_only() {
         udp2tcp_ports
             .iter()
             .find(|&candidate| obfuscation_settings.port == Constraint::Only(*candidate))
     } else {
-        udp2tcp_ports.get(retry_attempt % udp2tcp_ports.len())
+        // Just return a 'random' port
+        // TODO(markus): Can this randomness be pushsed up the stack?
+        udp2tcp_ports.choose(&mut thread_rng())
     };
+
     udp2tcp_endpoint
         .map(|udp2tcp_endpoint| ObfuscatorConfig::Udp2Tcp {
             endpoint: SocketAddr::new(endpoint.peer.endpoint.ip(), *udp2tcp_endpoint),
@@ -147,14 +114,5 @@ pub const fn should_use_bridge(config: &SelectorConfig) -> bool {
         BridgeState::Off => false,
         // TODO(markus): This should really be expressed as a constraint ..
         BridgeState::Auto => false,
-    }
-}
-
-// TODO(markus): Obsolete, remove
-pub const fn get_auto_obfuscator_retry_attempt(retry_attempt: usize) -> Option<usize> {
-    match retry_attempt % 4 {
-        0 | 1 => None,
-        // when the retry attempt is 2-3, 6-7, 10-11 ... obfuscation will be used
-        filtered_retry => Some(retry_attempt / 4 + filtered_retry - 2),
     }
 }
