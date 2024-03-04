@@ -40,26 +40,75 @@ pub struct RelayMatcher<T: EndpointMatcher> {
     pub endpoint_matcher: T,
 }
 
+/// TODO: Document
 #[derive(Clone, Debug)]
-pub struct RelayDetailer<T: EndpointMatcher> {
-    pub endpoint_matcher: T,
+pub struct RelayDetailer<T: Detailer> {
+    pub detailer: T,
 }
 
-impl<T: EndpointMatcher> RelayDetailer<T> {
-    pub const fn new(endpoint_matcher: T) -> Self {
-        Self { endpoint_matcher }
+impl<T: Detailer> RelayDetailer<T> {
+    pub const fn new(detailer: T) -> Self {
+        Self { detailer }
     }
 
     /// Populate a chosen [`Relay`] with connection details, such that a tunnel can
     /// be established.
     pub fn fill_in_the_details(&self, relay: Relay) -> Option<NormalSelectedRelay> {
         let endpoint_details = match relay.endpoint_data {
-            RelayEndpointData::Openvpn => self.endpoint_matcher.mullvad_endpoint(&relay),
-            RelayEndpointData::Wireguard(_) => self.endpoint_matcher.mullvad_endpoint(&relay),
+            RelayEndpointData::Openvpn => self.detailer.fill(&relay),
+            RelayEndpointData::Wireguard(_) => self.detailer.fill(&relay),
             RelayEndpointData::Bridge => None,
         }?;
 
         Some(NormalSelectedRelay::new(endpoint_details, relay))
+    }
+}
+
+pub trait Detailer {
+    /// Constructs a MullvadEndpoint for a given Relay using extra data from the relay matcher
+    /// itself.
+    fn fill(&self, relay: &Relay) -> Option<MullvadEndpoint>;
+}
+
+impl Detailer for WireguardMatcher {
+    fn fill(&self, relay: &Relay) -> Option<MullvadEndpoint> {
+        if !self.is_matching_relay(relay) {
+            return None;
+        }
+        self.wg_data_to_endpoint(relay, &self.data)
+    }
+}
+
+impl Detailer for OpenVpnMatcher {
+    fn fill(&self, relay: &Relay) -> Option<MullvadEndpoint> {
+        if !self.is_matching_relay(relay) {
+            return None;
+        }
+
+        self.get_transport_port().map(|endpoint| {
+            MullvadEndpoint::OpenVpn(Endpoint::new(
+                relay.ipv4_addr_in,
+                endpoint.port,
+                endpoint.protocol,
+            ))
+        })
+    }
+}
+
+impl Detailer for AnyTunnelMatcher {
+    fn fill(&self, relay: &Relay) -> Option<MullvadEndpoint> {
+        #[cfg(not(target_os = "android"))]
+        match self.tunnel_type {
+            Constraint::Any => self
+                .openvpn
+                .fill(relay)
+                .or_else(|| self.wireguard.fill(relay)),
+            Constraint::Only(TunnelType::OpenVpn) => self.openvpn.fill(relay),
+            Constraint::Only(TunnelType::Wireguard) => self.wireguard.fill(relay),
+        }
+
+        #[cfg(target_os = "android")]
+        self.wireguard.fill(relay)
     }
 }
 
@@ -139,30 +188,11 @@ impl<T: EndpointMatcher> RelayMatcher<T> {
 pub trait EndpointMatcher: Clone {
     /// Returns whether the relay has matching endpoints.
     fn is_matching_relay(&self, relay: &Relay) -> bool;
-    /// Constructs a MullvadEndpoint for a given Relay using extra data from the relay matcher
-    /// itself.
-    fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint>;
 }
 
 impl EndpointMatcher for OpenVpnMatcher {
     fn is_matching_relay(&self, relay: &Relay) -> bool {
         filter_openvpn(relay) && openvpn_filter_on_port(self.constraints, &self.data)
-    }
-
-    /// TODO(markus): This function does not only filter, it actively produces
-    /// a new [`MullvadEndpoint`]. This should be split up.
-    fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint> {
-        if !self.is_matching_relay(relay) {
-            return None;
-        }
-
-        self.get_transport_port().map(|endpoint| {
-            MullvadEndpoint::OpenVpn(Endpoint::new(
-                relay.ipv4_addr_in,
-                endpoint.port,
-                endpoint.protocol,
-            ))
-        })
     }
 }
 #[derive(Clone)]
@@ -185,21 +215,6 @@ impl EndpointMatcher for AnyTunnelMatcher {
             Constraint::Only(TunnelType::OpenVpn) => self.openvpn.is_matching_relay(relay),
             Constraint::Only(TunnelType::Wireguard) => self.wireguard.is_matching_relay(relay),
         }
-    }
-
-    fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint> {
-        #[cfg(not(target_os = "android"))]
-        match self.tunnel_type {
-            Constraint::Any => self
-                .openvpn
-                .mullvad_endpoint(relay)
-                .or_else(|| self.wireguard.mullvad_endpoint(relay)),
-            Constraint::Only(TunnelType::OpenVpn) => self.openvpn.mullvad_endpoint(relay),
-            Constraint::Only(TunnelType::Wireguard) => self.wireguard.mullvad_endpoint(relay),
-        }
-
-        #[cfg(target_os = "android")]
-        self.wireguard.mullvad_endpoint(relay)
     }
 }
 
@@ -290,7 +305,6 @@ impl WireguardMatcher {
         matcher
     }
 
-    // TODO(markus): This is not a filter function
     pub fn from_endpoint(data: WireguardEndpointData) -> Self {
         Self {
             data,
@@ -298,7 +312,6 @@ impl WireguardMatcher {
         }
     }
 
-    // TODO(markus): This is not a filter function
     fn wg_data_to_endpoint(
         &self,
         relay: &Relay,
@@ -324,7 +337,6 @@ impl WireguardMatcher {
         }))
     }
 
-    // TODO(markus): This is not a filter function
     fn get_address_for_wireguard_relay(&self, relay: &Relay) -> Option<IpAddr> {
         match self.ip_version {
             Constraint::Any | Constraint::Only(IpVersion::V4) => Some(relay.ipv4_addr_in.into()),
@@ -332,7 +344,7 @@ impl WireguardMatcher {
         }
     }
 
-    // TODO(markus): This is not a filter function
+    // TODO(markus): Can we isolate randomness?
     fn get_port_for_wireguard_relay(&self, data: &WireguardEndpointData) -> Option<u16> {
         match self.port {
             Constraint::Any => {
@@ -373,22 +385,11 @@ impl WireguardMatcher {
 }
 
 impl EndpointMatcher for WireguardMatcher {
-    // TODO(markus): Decompose this next!
     fn is_matching_relay(&self, relay: &Relay) -> bool {
         match &self.peer {
             Some(peer) => filter_wireguard(relay) && are_distinct_relays(peer, relay),
             None => filter_wireguard(relay),
         }
-    }
-
-    // TODO(markus): This function should be converted to only the mapping part, not the filtering
-    // part.
-    // TODO(markus): Remove this
-    fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint> {
-        if !self.is_matching_relay(relay) {
-            return None;
-        }
-        self.wg_data_to_endpoint(relay, &self.data)
     }
 }
 
@@ -415,8 +416,6 @@ impl OpenVpnMatcher {
     }
 
     /// Choose a valid OpenVPN port.
-    ///
-    /// TODO(markus): This is not a filter function!
     fn get_transport_port(&self) -> Option<&OpenVpnEndpoint> {
         let constraints_port = self.constraints.port;
         let compatible_port_combo = |endpoint: &&OpenVpnEndpoint| match constraints_port {
@@ -463,11 +462,6 @@ impl BridgeMatcher {
 impl EndpointMatcher for BridgeMatcher {
     fn is_matching_relay(&self, relay: &Relay) -> bool {
         filter_bridge(relay)
-    }
-
-    // TODO(markus): Remove
-    fn mullvad_endpoint(&self, _relay: &Relay) -> Option<MullvadEndpoint> {
-        None
     }
 }
 

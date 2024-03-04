@@ -94,9 +94,6 @@ static RETRY_ORDER: Lazy<Vec<RelayConstraintsFilter>> = Lazy::new(|| {
     ]
 });
 
-// TODO(markus): Where does this belong?
-const DATE_TIME_FORMAT_STR: &str = "%Y-%m-%d %H:%M:%S%.3f";
-
 #[derive(Clone)]
 pub struct RelaySelector {
     config: Arc<Mutex<SelectorConfig>>,
@@ -269,6 +266,7 @@ impl RelaySelector {
         resource_path: impl AsRef<Path>,
         cache_path: impl AsRef<Path>,
     ) -> Self {
+        const DATE_TIME_FORMAT_STR: &str = "%Y-%m-%d %H:%M:%S%.3f";
         let unsynchronized_parsed_relays =
             ParsedRelays::from_file(&cache_path, &resource_path, &config.relay_overrides)
                 .unwrap_or_else(|error| {
