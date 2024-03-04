@@ -413,6 +413,7 @@ impl RelaySelector {
                     .multihop()
                     .then(|| {
                         Self::get_wireguard_entry_relay(
+                            relay.exit_relay.clone(),
                             parsed_relays,
                             constraints,
                             &config.custom_lists,
@@ -514,12 +515,11 @@ impl RelaySelector {
         matcher.filter_matching_relay_list(relays)
     }
 
-    // TODO(markus): Basically, this should not exist at all. It's job is to use
-    // randomness to select one relay from a set of relays, setting different
-    // entry/exit IPs as it goes.
+    /// TODO(markus): Document
     fn get_wireguard_multihop_endpoint(
+        exit_relay: Relay,
         parsed_relays: &ParsedRelays,
-        entry_matcher: RelayMatcher<WireguardMatcher>,
+        mut entry_matcher: RelayMatcher<WireguardMatcher>,
         mut exit_matcher: RelayMatcher<WireguardMatcher>,
     ) -> Result<Vec<Relay>, Error> {
         let entry_relays = entry_matcher.filter_matching_relay_list(parsed_relays.relays());
@@ -531,6 +531,7 @@ impl RelaySelector {
             exit_matcher.set_peer(entry_relay);
             Ok(exit_matcher.filter_matching_relay_list(parsed_relays.relays()))
         } else {
+            entry_matcher.set_peer(exit_relay);
             Ok(entry_matcher.filter_matching_relay_list(parsed_relays.relays()))
         }
     }
@@ -539,6 +540,7 @@ impl RelaySelector {
     /// If using multihop then location is the exit constraint and
     /// `wireguard_constraints.entry_location` is set as the entry location constraint.
     fn get_wireguard_entry_relay(
+        exit_relay: Relay,
         parsed_relays: &ParsedRelays,
         constraints: &RelayConstraints,
         custom_lists: &CustomListsSettings,
@@ -559,11 +561,16 @@ impl RelaySelector {
             custom_lists,
         );
 
-        Self::get_wireguard_multihop_endpoint(parsed_relays, entry_matcher, exit_matcher)
-            .ok()
-            .as_ref()
-            .and_then(|relays| helpers::pick_random_relay(relays))
-            .cloned()
+        Self::get_wireguard_multihop_endpoint(
+            exit_relay,
+            parsed_relays,
+            entry_matcher,
+            exit_matcher,
+        )
+        .ok()
+        .as_ref()
+        .and_then(|relays| helpers::pick_random_relay(relays))
+        .cloned()
     }
 
     /// TODO(markus): Document
