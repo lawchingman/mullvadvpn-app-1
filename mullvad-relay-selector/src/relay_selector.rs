@@ -25,6 +25,7 @@ mod matcher;
 mod tests;
 
 use chrono::{DateTime, Local};
+use itertools::Itertools;
 use once_cell::sync::Lazy;
 use std::{
     path::Path,
@@ -53,7 +54,6 @@ use talpid_types::{
     ErrorExt,
 };
 
-use crate::constants::{MAX_BRIDGE_DISTANCE, MIN_BRIDGE_COUNT};
 use crate::error::Error;
 use crate::parsed_relays::ParsedRelays;
 
@@ -605,7 +605,6 @@ impl RelaySelector {
         }
     }
 
-    // TODO(markus): Decompose this function
     fn get_bridge_for(
         parsed_relays: &ParsedRelays,
         config: &ResolvedBridgeSettings<'_>,
@@ -636,7 +635,9 @@ impl RelaySelector {
         }
     }
 
-    // TODO(markus): Decompose this function!
+    /// Try to get a bridge that matches the given `constraints`.
+    ///
+    /// The connection details are returned alongside the relay hosting the bridge.
     fn get_proxy_settings<T: Into<Coordinates>>(
         parsed_relays: &ParsedRelays,
         constraints: &InternalBridgeConstraints,
@@ -644,59 +645,57 @@ impl RelaySelector {
         custom_lists: &CustomListsSettings,
     ) -> Option<(CustomProxy, Relay)> {
         let matcher = BridgeMatcher::new_matcher(constraints.clone(), custom_lists);
-        let matching_relays = matcher.filter_matching_relay_list(parsed_relays.relays());
+        let relays = matcher.filter_matching_relay_list(parsed_relays.relays());
 
-        if matching_relays.is_empty() {
-            return None;
+        let relay = match location {
+            Some(location) => Self::get_proximate_bridge(relays, location),
+            None => helpers::pick_random_relay(&relays).cloned(),
+        }?;
+
+        let bridge = &parsed_relays.parsed_list().bridge;
+        helpers::pick_random_bridge(bridge, &relay).map(|bridge| (bridge, relay.clone()))
+    }
+
+    /// Try to get a bridge which is close to `location`.
+    fn get_proximate_bridge<T: Into<Coordinates>>(
+        relays: Vec<Relay>,
+        location: T,
+    ) -> Option<Relay> {
+        /// Minimum number of bridges to keep for selection when filtering by distance.
+        const MIN_BRIDGE_COUNT: usize = 5;
+        /// Max distance of bridges to consider for selection (km).
+        const MAX_BRIDGE_DISTANCE: f64 = 1500f64;
+        let location = location.into();
+
+        #[derive(Debug, Clone)]
+        struct RelayWithDistance {
+            relay: Relay,
+            distance: f64,
         }
 
-        let relay = if let Some(location) = location {
-            let location = location.into();
+        // Filter out all candidate bridges.
+        let matching_relays: Vec<RelayWithDistance> = relays
+            .into_iter()
+            .map(|relay| RelayWithDistance {
+                distance: relay.location.as_ref().unwrap().distance_from(&location),
+                relay,
+            })
+            .sorted_unstable_by_key(|relay| relay.distance as usize)
+            .take(MIN_BRIDGE_COUNT)
+            .filter(|relay| relay.distance <= MAX_BRIDGE_DISTANCE)
+            .collect();
 
-            #[derive(Debug, Clone)]
-            struct RelayWithDistance {
-                relay: Relay,
-                distance: f64,
-            }
+        // Calculate the maximum distance from `location` among the candidates.
+        let greatest_distance: f64 = matching_relays
+            .iter()
+            .map(|relay| relay.distance)
+            .reduce(f64::max)?;
+        // Define the weight function to prioritize bridges which are closer to `location`.
+        let weight_fn = |relay: &RelayWithDistance| 1 + (greatest_distance - relay.distance) as u64;
 
-            let mut matching_relays: Vec<RelayWithDistance> = matching_relays
-                .into_iter()
-                .map(|relay| RelayWithDistance {
-                    distance: relay.location.as_ref().unwrap().distance_from(&location),
-                    relay,
-                })
-                .collect();
-            matching_relays
-                .sort_unstable_by_key(|relay: &RelayWithDistance| relay.distance as usize);
-
-            let mut greatest_distance = 0f64;
-            matching_relays = matching_relays
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, relay)| {
-                    if i < MIN_BRIDGE_COUNT || relay.distance <= MAX_BRIDGE_DISTANCE {
-                        if relay.distance > greatest_distance {
-                            greatest_distance = relay.distance;
-                        }
-                        return Some(relay);
-                    }
-                    None
-                })
-                .collect();
-
-            let weight_fn =
-                |relay: &RelayWithDistance| 1 + (greatest_distance - relay.distance) as u64;
-
-            helpers::pick_random_relay_fn(&matching_relays, weight_fn)
-                .cloned()
-                .map(|relay_with_distance| relay_with_distance.relay)
-        } else {
-            helpers::pick_random_relay(&matching_relays).cloned()
-        };
-        relay.and_then(|relay| {
-            let bridge = &parsed_relays.parsed_list().bridge;
-            helpers::pick_random_bridge(bridge, &relay).map(|bridge| (bridge, relay.clone()))
-        })
+        helpers::pick_random_relay_fn(&matching_relays, weight_fn)
+            .cloned()
+            .map(|relay_with_distance| relay_with_distance.relay)
     }
 
     /// Returns the average location of relays that match the given constraints.
@@ -730,7 +729,6 @@ impl RelaySelector {
         parsed_relays: &ParsedRelays,
         matcher: RelayMatcher<AnyTunnelMatcher>,
     ) -> Option<Coordinates> {
-        use itertools::Itertools;
         use std::ops::Not;
         let matching_locations: Vec<Location> = matcher
             .filter_matching_relay_list(parsed_relays.relays())
