@@ -6,9 +6,9 @@ use mullvad_types::{
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     location::Location,
     relay_constraints::{
-        BridgeState, LocationConstraint, OpenVpnConstraints, Ownership, Providers,
-        RelayConstraints, RelayConstraintsFilter, ResolvedLocationConstraint, TransportPort,
-        WireguardConstraints,
+        BridgeState, InternalBridgeConstraints, LocationConstraint, OpenVpnConstraints, Ownership,
+        Providers, RelayConstraints, RelayConstraintsFilter, ResolvedLocationConstraint,
+        TransportPort, WireguardConstraints,
     },
     relay_list::{
         OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData, WireguardEndpointData,
@@ -23,17 +23,44 @@ use talpid_types::net::{
     all_of_the_internet, wireguard, Endpoint, IpVersion, TransportProtocol, TunnelType,
 };
 
+use crate::NormalSelectedRelay;
+
 use super::helpers;
 
 #[derive(Clone)]
 pub struct RelayMatcher<T: EndpointMatcher> {
     /// Locations allowed to be picked from. In the case of custom lists this may be multiple
     /// locations. In normal circumstances this contains only 1 location.
-    pub locations: Constraint<ResolvedLocationConstraint>, // TODO(markus): Slated for removal
-    pub providers: Constraint<Providers>, // TODO(markus): Slated for removal
-    pub ownership: Constraint<Ownership>, // TODO(markus): Slated for removal
-    /// Concrete representation of [`RelayConstraints`].
+    pub locations: Constraint<ResolvedLocationConstraint>,
+    /// Relay providers allowed to be picked from.
+    pub providers: Constraint<Providers>,
+    /// Relay ownership allowed to be picked from.
+    pub ownership: Constraint<Ownership>,
+    /// Concrete representation of [`RelayConstraints`] or [`BridgeConstraints`].
     pub endpoint_matcher: T,
+}
+
+#[derive(Clone, Debug)]
+pub struct RelayDetailer<T: EndpointMatcher> {
+    pub endpoint_matcher: T,
+}
+
+impl<T: EndpointMatcher> RelayDetailer<T> {
+    pub const fn new(endpoint_matcher: T) -> Self {
+        Self { endpoint_matcher }
+    }
+
+    /// Populate a chosen [`Relay`] with connection details, such that a tunnel can
+    /// be established.
+    pub fn fill_in_the_details(&self, relay: Relay) -> Option<NormalSelectedRelay> {
+        let endpoint_details = match relay.endpoint_data {
+            RelayEndpointData::Openvpn => self.endpoint_matcher.mullvad_endpoint(&relay),
+            RelayEndpointData::Wireguard(_) => self.endpoint_matcher.mullvad_endpoint(&relay),
+            RelayEndpointData::Bridge => None,
+        }?;
+
+        Some(NormalSelectedRelay::new(endpoint_details, relay))
+    }
 }
 
 impl RelayMatcher<AnyTunnelMatcher> {
@@ -411,17 +438,34 @@ impl OpenVpnMatcher {
     }
 }
 
-// TODO(markus): These seem redundant
-
-// TODO(markus): Remov
 #[derive(Clone)]
-pub struct BridgeMatcher(pub ());
+pub struct BridgeMatcher;
+
+impl BridgeMatcher {
+    pub fn new_matcher(
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        relay_constraints: InternalBridgeConstraints,
+        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
+        custom_lists: &CustomListsSettings,
+    ) -> RelayMatcher<Self> {
+        RelayMatcher {
+            locations: ResolvedLocationConstraint::from_constraint(
+                relay_constraints.location,
+                custom_lists,
+            ),
+            providers: relay_constraints.providers,
+            ownership: relay_constraints.ownership,
+            endpoint_matcher: BridgeMatcher,
+        }
+    }
+}
 
 impl EndpointMatcher for BridgeMatcher {
     fn is_matching_relay(&self, relay: &Relay) -> bool {
         filter_bridge(relay)
     }
 
+    // TODO(markus): Remove
     fn mullvad_endpoint(&self, _relay: &Relay) -> Option<MullvadEndpoint> {
         None
     }

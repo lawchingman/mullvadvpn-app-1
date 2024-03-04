@@ -42,7 +42,7 @@ use mullvad_types::{
         BridgeSettings, BridgeSettingsFilter, BridgeState, InternalBridgeConstraints,
         ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter, RelayConstraints,
         RelayConstraintsFilter, RelayOverride, RelaySettings, ResolvedBridgeSettings,
-        ResolvedLocationConstraint, WireguardConstraints, WireguardConstraintsFilter,
+        WireguardConstraints, WireguardConstraintsFilter,
     },
     relay_list::{Relay, RelayList},
     settings::Settings,
@@ -57,7 +57,7 @@ use crate::constants::{MAX_BRIDGE_DISTANCE, MIN_BRIDGE_COUNT};
 use crate::error::Error;
 use crate::parsed_relays::ParsedRelays;
 
-use self::matcher::{AnyTunnelMatcher, EndpointMatcher};
+use self::matcher::{AnyTunnelMatcher, RelayDetailer};
 
 /// [`RETRY_ORDER`] defines the order of constraints which we would like to try to apply
 /// in successive retry attempts: https://linear.app/mullvad/issue/DES-543/optimize-order-of-connection-parameters-when-trying-to-connect
@@ -398,7 +398,8 @@ impl RelaySelector {
         _user_preferences: &RelayConstraintsFilter,
         constraints: &RelayConstraints, // TODO(markus): Remove this argument
     ) -> Result<GetRelay, Error> {
-        let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints);
+        let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints)
+            .ok_or(Error::NoRelay)?;
         match relay.endpoint {
             MullvadEndpoint::OpenVpn(endpoint) => {
                 let bridge = helpers::should_use_bridge(config)
@@ -448,7 +449,7 @@ impl RelaySelector {
         parsed_relays: &ParsedRelays,
         config: &SelectorConfig,
         constraints: &RelayConstraints,
-    ) -> NormalSelectedRelay {
+    ) -> Option<NormalSelectedRelay> {
         // Filter among all valid relays
         let relays = Self::get_tunnel_endpoints(
             parsed_relays,
@@ -466,12 +467,9 @@ impl RelaySelector {
             &config.custom_lists,
         );
         // Fill in the connection details of the chosen relay.
-        matcher
-            .endpoint_matcher
-            .mullvad_endpoint(&relay)
-            .map(|endpoint| NormalSelectedRelay::new(endpoint, relay.clone()))
-            // TODO(markus): Do not unwrap!
-            .unwrap()
+        // TODO(markus): Change name
+        let filler = RelayDetailer::new(matcher.endpoint_matcher.clone());
+        filler.fill_in_the_details(relay)
     }
 
     /// Returns a random relay and relay endpoint matching the given constraints and with
@@ -645,16 +643,7 @@ impl RelaySelector {
         location: Option<T>,
         custom_lists: &CustomListsSettings,
     ) -> Option<(CustomProxy, Relay)> {
-        let matcher = RelayMatcher {
-            locations: ResolvedLocationConstraint::from_constraint(
-                constraints.location.clone(),
-                custom_lists,
-            ),
-            providers: constraints.providers.clone(),
-            ownership: constraints.ownership,
-            endpoint_matcher: BridgeMatcher(()),
-        };
-
+        let matcher = BridgeMatcher::new_matcher(constraints.clone(), custom_lists);
         let matching_relays = matcher.filter_matching_relay_list(parsed_relays.relays());
 
         if matching_relays.is_empty() {
@@ -718,6 +707,9 @@ impl RelaySelector {
         constraints: &RelayConstraints,
         config: &SelectorConfig,
     ) -> Option<Coordinates> {
+        if constraints.location.is_any() {
+            return None;
+        }
         let (openvpn_data, wireguard_data) = (
             parsed_relays.parsed_list().openvpn.clone(),
             parsed_relays.parsed_list().wireguard.clone(),
@@ -731,30 +723,25 @@ impl RelaySelector {
             &config.custom_lists.clone(),
         );
 
-        Self::get_relay_midpoint_inner(parsed_relays, constraints, matcher)
+        Self::get_relay_midpoint_inner(parsed_relays, matcher)
     }
 
     fn get_relay_midpoint_inner(
         parsed_relays: &ParsedRelays,
-        constraints: &RelayConstraints,
         matcher: RelayMatcher<AnyTunnelMatcher>,
     ) -> Option<Coordinates> {
-        if constraints.location.is_any() {
-            return None;
-        }
+        use itertools::Itertools;
+        use std::ops::Not;
+        let matching_locations: Vec<Location> = matcher
+            .filter_matching_relay_list(parsed_relays.relays())
+            .into_iter()
+            .filter_map(|relay| relay.location)
+            .unique_by(|location| location.city.clone())
+            .collect();
 
-        let mut matching_locations: Vec<Location> = {
-            matcher
-                .filter_matching_relay_list(parsed_relays.relays())
-                .into_iter()
-                .filter_map(|relay| relay.location)
-                .collect()
-        };
-        matching_locations.dedup_by(|a, b| a.has_same_city(b));
-
-        if matching_locations.is_empty() {
-            return None;
-        }
-        Some(Coordinates::midpoint(&matching_locations))
+        matching_locations
+            .is_empty()
+            .not()
+            .then(|| Coordinates::midpoint(&matching_locations))
     }
 }
