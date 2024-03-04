@@ -1,3 +1,4 @@
+//! TODO(markus): Remove old test code/snippets/comments
 //! Tests for verifying that the relay selector works as expected.
 #![allow(unused)]
 
@@ -6,9 +7,10 @@ use mullvad_types::{
     custom_list::CustomListsSettings,
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     relay_constraints::{
+        builder::{any, wireguard},
         BridgeState, GeographicLocationConstraint, LocationConstraint, ObfuscationSettings,
-        OpenVpnConstraints, Ownership, Providers, RelayConstraints, RelaySettings,
-        SelectedObfuscation, TransportPort, WireguardConstraints,
+        OpenVpnConstraints, Ownership, Providers, RelayConstraints, RelayConstraintsFilter,
+        RelaySettings, SelectedObfuscation, TransportPort, WireguardConstraints,
     },
     relay_list::{
         BridgeEndpointData, OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData,
@@ -26,40 +28,10 @@ use crate::{
     error::Error,
     relay_selector::helpers,
     relay_selector::{NormalSelectedRelay, RelaySelector, SelectedRelay, SelectorConfig},
+    GetRelay,
 };
 
-use super::SelectedObfuscator;
-
-impl RelaySelector {
-    fn get_obfuscator(
-        &self,
-        relay: &Relay,
-        endpoint: &MullvadWireguardEndpoint,
-        retry_attempt: usize,
-    ) -> Result<Option<SelectedObfuscator>, Error> {
-        // TODO(markus): Beware of deadlocks
-        let config_mutex = self.config.lock().unwrap();
-        let obfuscation_settings = &config_mutex.obfuscation_settings;
-        let udp2tcp_ports = {
-            &self
-                .parsed_relays
-                .lock()
-                .unwrap()
-                .parsed_list()
-                .wireguard
-                .udp2tcp_ports
-                .clone()
-        };
-
-        helpers::get_obfuscator_inner(
-            udp2tcp_ports,
-            obfuscation_settings,
-            relay,
-            endpoint,
-            retry_attempt,
-        )
-    }
-}
+use super::{SelectedObfuscator, RETRY_ORDER};
 
 static RELAYS: Lazy<RelayList> = Lazy::new(|| RelayList {
     etag: None,
@@ -191,25 +163,96 @@ static RELAYS: Lazy<RelayList> = Lazy::new(|| RelayList {
     },
 });
 
+// Helper functions
+fn get_relay(get_result: GetRelay) -> Relay {
+    match get_result {
+        GetRelay::Wireguard {
+            relay,
+            entry,
+            obfuscator,
+        } => relay.exit_relay,
+        GetRelay::OpenVpn { relay, bridge } => relay.exit_relay,
+        GetRelay::Custom(custom) => {
+            panic!("Can not extract regular relay from custom relay: {custom}")
+        }
+    }
+}
+
+fn extract_relay(relay: SelectedRelay) -> Relay {
+    match relay {
+        SelectedRelay::Normal(relay) => relay.exit_relay,
+        SelectedRelay::Custom(custom) => {
+            panic!("Can not extract regular relay from custom relay: {custom}")
+        }
+    }
+}
+
+fn tunnel_type(relay: &Relay) -> TunnelType {
+    match relay.endpoint_data {
+        RelayEndpointData::Openvpn | RelayEndpointData::Bridge => TunnelType::OpenVpn,
+        RelayEndpointData::Wireguard(_) => TunnelType::Wireguard,
+    }
+}
+
 #[test]
-fn test_preferred_tunnel_protocol() {
-    // TODO(markus): Re write this test to not depend on the implementation of private functions on
-    // the relay selector. In this case, it was `get_any_tunnel_endpoint`.
+/// Test whether the relay selector seems to respect the order as defined by [`RETRY_ORDER`].
+fn test_retry_order() {
+    // In order to for the relay queries defined by `RETRY_ORDER` to always take precedence,
+    // the user settings need to be 'neutral' on the type of relay that it wants to connect to.
+    // A default `SelectorConfig` *should* have this property, but a more robust way to guarantee
+    // this would be to create a neutral relay query and supply it to the relay selector at every
+    // call to the `get_relay` function.
+    let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
+    let tunnel_protocols: Vec<Constraint<TunnelType>> = RETRY_ORDER
+        .iter()
+        .map(|relay| relay.tunnel_protocol)
+        .collect();
+    for (retry_attempt, tunnel_protocol) in tunnel_protocols.iter().enumerate() {
+        // Check if the tunnel protocol on the relay returned from the relay selector aligns with
+        // the tunnel protocol defined by the default retry strategy.
+        match tunnel_protocol {
+            Constraint::Any => continue,
+            Constraint::Only(tunnel_protocol) => {
+                let relay = relay_selector.get_relay(retry_attempt).unwrap_or_else(|_| {
+                    panic!(
+                        "{}",
+                        format!("Retry attempt {retry_attempt} did not yield any relay")
+                    )
+                });
+                let tunnel_type = tunnel_type(&get_relay(relay));
+                assert_eq!(tunnel_type, *tunnel_protocol)
+            }
+        }
+    }
+}
 
-    // let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
+#[test]
+fn test_prefer_wireguard_if_location_supports_it() {
+    let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
+    let query = any()
+        // This was the old test .. Seems a bit railway-ish :-D
+        .location(GeographicLocationConstraint::Hostname("se".to_string(), "got".to_string(), "se9-wireguard".to_string()))
+        // This seems more appropriate.. But where would this logic be?
+        .location(GeographicLocationConstraint::City("se".to_string(), "got".to_string()))
+        .build();
 
-    // // Prefer WG if the location only supports it
+    let relay = relay_selector.get_relay_by_query(query).unwrap();
+    let tunnel_type = tunnel_type(&get_relay(relay));
+    assert_eq!(tunnel_type, TunnelType::Wireguard)
+
+    // -- Old test --
+    // Prefer WG if the location only supports it
     // let location = GeographicLocationConstraint::Hostname(
     //     "se".to_string(),
     //     "got".to_string(),
     //     "se9-wireguard".to_string(),
     // );
-    // let relay_constraints = RelayConstraints {
+    // let relay_constraints = RelayConstraints  {
     //     location: Constraint::Only(LocationConstraint::from(location)),
     //     tunnel_protocol: Constraint::Any,
     //     ..RelayConstraints::default()
     // };
-
+    //
     // let preferred = {
     //     let parsed_relays = relay_selector.parsed_relays.lock().unwrap();
     //     let relays: Vec<Relay> = parsed_relays.relays().cloned().collect();
@@ -225,51 +268,8 @@ fn test_preferred_tunnel_protocol() {
     //     preferred.tunnel_protocol,
     //     Constraint::Only(TunnelType::Wireguard)
     // );
-
+    //
     // for attempt in 0..10 {
-    //     // TODO(markus): Locking seems a bit weird here..
-    //     let parsed_relays = relay_selector.parsed_relays.lock().unwrap();
-    //     assert!(RelaySelector::get_any_tunnel_endpoint(
-    //         &parsed_relays,
-    //         &relay_constraints,
-    //         BridgeState::Off,
-    //         attempt,
-    //         &CustomListsSettings::default()
-    //     )
-    //     .is_ok());
-    // }
-
-    // // Prefer OpenVPN if the location only supports it
-    // let location = GeographicLocationConstraint::Hostname(
-    //     "se".to_string(),
-    //     "got".to_string(),
-    //     "se-got-001".to_string(),
-    // );
-    // let relay_constraints = RelayConstraints {
-    //     location: Constraint::Only(LocationConstraint::from(location)),
-    //     tunnel_protocol: Constraint::Any,
-    //     ..RelayConstraints::default()
-    // };
-
-    // let preferred = {
-    //     let parsed_relays = relay_selector.parsed_relays.lock().unwrap();
-    //     let relays: Vec<Relay> = parsed_relays.relays().cloned().collect();
-
-    //     helpers::preferred_constraints(
-    //         &relays,
-    //         &relay_constraints,
-    //         BridgeState::Off,
-    //         0,
-    //         &CustomListsSettings::default(),
-    //     )
-    // };
-    // assert_eq!(
-    //     preferred.tunnel_protocol,
-    //     Constraint::Only(TunnelType::OpenVpn)
-    // );
-
-    // for attempt in 0..10 {
-    //     // TODO(markus): Locking seems a bit weird here..
     //     let parsed_relays = relay_selector.parsed_relays.lock().unwrap();
     //     assert!(RelaySelector::get_any_tunnel_endpoint(
     //         &parsed_relays,
@@ -283,12 +283,88 @@ fn test_preferred_tunnel_protocol() {
 }
 
 #[test]
-fn test_wg_entry_hostname_collision() {
-    // TODO(markus): Re write this test to not depend on the implementation of private functions on
-    // the relay selector. In this case, it was `get_tunnel_endpoint`.
+fn test_prefer_openvpn_if_location_supports_it() {
+    let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
+    let query = any()
+        // This was the old test .. Seems a bit railway-ish :-D
+        .location(GeographicLocationConstraint::Hostname("se".to_string(), "got".to_string(), "se-got-001".to_string()))
+        // This seems more appropriate.. But where would this logic be?
+        // .location(GeographicLocationConstraint::City("se".to_string(), "got".to_string()))
+        .build();
 
+    let relay = relay_selector.get_relay_by_query(query).unwrap();
+    let tunnel_type = tunnel_type(&get_relay(relay));
+    assert_eq!(tunnel_type, TunnelType::OpenVpn)
+
+    // -- Old test --
+    // Prefer OpenVPN if the location only supports it
+    // let location = GeographicLocationConstraint::Hostname(
+    //     "se".to_string(),
+    //     "got".to_string(),
+    //     "se-got-001".to_string(),
+    // );
+    // let relay_constraints = RelayConstraints {
+    //     location: Constraint::Only(LocationConstraint::from(location)),
+    //     tunnel_protocol: Constraint::Any,
+    //     ..RelayConstraints::default()
+    // };
+    //
+    // let preferred = {
+    //     let parsed_relays = relay_selector.parsed_relays.lock().unwrap();
+    //     let relays: Vec<Relay> = parsed_relays.relays().cloned().collect();
+    //
+    //     helpers::preferred_constraints(
+    //         &relays,
+    //         &relay_constraints,
+    //         BridgeState::Off,
+    //         0,
+    //         &CustomListsSettings::default(),
+    //     )
+    // };
+    // assert_eq!(
+    //     preferred.tunnel_protocol,
+    //     Constraint::Only(TunnelType::OpenVpn)
+    // );
+    //
+    // for attempt in 0..10 {
+    //     let parsed_relays = relay_selector.parsed_relays.lock().unwrap();
+    //     assert!(RelaySelector::get_any_tunnel_endpoint(
+    //         &parsed_relays,
+    //         &relay_constraints,
+    //         BridgeState::Off,
+    //         attempt,
+    //         &CustomListsSettings::default()
+    //     )
+    //     .is_ok());
+    // }
+}
+
+#[test]
+fn test_wireguardg_entry_hostname_collision() {
+    let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
+    let location1 = GeographicLocationConstraint::Hostname(
+        "se".to_string(),
+        "got".to_string(),
+        "se9-wireguard".to_string(),
+    );
+    let location2 = GeographicLocationConstraint::Hostname(
+        "se".to_string(),
+        "got".to_string(),
+        "se10-wireguard".to_string(),
+    );
+
+    // The same host cannot be used for entry and exit
+    let invalid_query = wireguard::new().location(location1.clone())
+        .multihop()
+        .entry(location1)
+        .build();
+
+    assert!(relay_selector.get_relay_by_query(invalid_query).is_err())
+
+    // -- Old test --
+    //
     // let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
-
+    //
     // let location1 = GeographicLocationConstraint::Hostname(
     //     "se".to_string(),
     //     "got".to_string(),
@@ -299,19 +375,19 @@ fn test_wg_entry_hostname_collision() {
     //     "got".to_string(),
     //     "se10-wireguard".to_string(),
     // );
-
+    //
     // let mut relay_constraints = RelayConstraints {
     //     location: Constraint::Only(LocationConstraint::from(location1.clone())),
     //     tunnel_protocol: Constraint::Only(TunnelType::Wireguard),
     //     ..RelayConstraints::default()
     // };
-
+    //
     // relay_constraints.wireguard_constraints.use_multihop(true);
     // relay_constraints.wireguard_constraints.entry_location =
     //     Constraint::Only(LocationConstraint::from(location1));
-
+    //
     // // The same host cannot be used for entry and exit
-
+    //
     // // TODO(markus): Locking seems a bit weird here..
     // let parsed_relays = relay_selector.parsed_relays.lock().unwrap();
     // assert!(RelaySelector::get_tunnel_endpoint(
@@ -322,12 +398,12 @@ fn test_wg_entry_hostname_collision() {
     //     &CustomListsSettings::default()
     // )
     // .is_err());
-
+    //
     // relay_constraints.wireguard_constraints.entry_location =
     //     Constraint::Only(LocationConstraint::from(location2));
-
+    //
     // // If the entry and exit differ, this should succeed
-
+    //
     // assert!(RelaySelector::get_tunnel_endpoint(
     //     &parsed_relays,
     //     &relay_constraints,

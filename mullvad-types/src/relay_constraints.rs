@@ -1256,7 +1256,7 @@ impl RelayOverride {
 #[allow(dead_code)]
 pub mod builder {
     //! Strongly typed Builder pattern for of relay constraints though the use of the Typestate pattern.
-    use super::RelayConstraintsFilter;
+    use super::{GeographicLocationConstraint, RelayConstraintsFilter};
     pub use super::{LocationConstraint, Ownership, Providers};
     use crate::constraints::Constraint;
 
@@ -1294,8 +1294,8 @@ pub mod builder {
         }
 
         /// Configure the [`LocationConstraint`] to use.
-        pub fn location(mut self, location: LocationConstraint) -> Self {
-            self.constraints.location = Constraint::Only(location);
+        pub fn location(mut self, location: GeographicLocationConstraint) -> Self {
+            self.constraints.location = Constraint::Only(LocationConstraint::from(location));
             self
         }
 
@@ -1323,7 +1323,10 @@ pub mod builder {
         use super::{Any, RelayConstraintBuilder};
         use crate::{
             constraints::Constraint,
-            relay_constraints::{Udp2TcpObfuscationSettings, WireguardConstraintsFilter},
+            relay_constraints::{
+                GeographicLocationConstraint, Udp2TcpObfuscationSettings,
+                WireguardConstraintsFilter,
+            },
         };
         // Re-exports
         pub use super::LocationConstraint;
@@ -1387,8 +1390,9 @@ pub mod builder {
         impl<Obfuscation> RelayConstraintBuilder<Wireguard<bool, Obfuscation>> {
             /// Set the entry location in a multihop configuration. This requires
             /// multihop to be enabled.
-            pub fn entry(mut self, location: LocationConstraint) -> Self {
-                self.constraints.wireguard_constraints.entry_location = Constraint::Only(location);
+            pub fn entry(mut self, location: GeographicLocationConstraint) -> Self {
+                self.constraints.wireguard_constraints.entry_location =
+                    Constraint::Only(LocationConstraint::from(location));
                 self
             }
         }
@@ -1430,7 +1434,8 @@ pub mod builder {
         use super::{Any, LocationConstraint, Ownership, Providers, RelayConstraintBuilder};
         use crate::constraints::Constraint;
         use crate::relay_constraints::{
-            BridgeConstraints, BridgeSettingsFilter, OpenVpnConstraintsFilter, TransportPort,
+            BridgeConstraints, BridgeSettingsFilter, GeographicLocationConstraint,
+            OpenVpnConstraintsFilter, TransportPort,
         };
         // Re-exports
         pub use talpid_types::net::TransportProtocol;
@@ -1529,8 +1534,9 @@ pub mod builder {
 
         impl<TransportPort> RelayConstraintBuilder<OpenVPN<TransportPort, BridgeConstraints>> {
             ///
-            pub fn bridge_location(mut self, location: LocationConstraint) -> Self {
-                self.protocol.bridge_settings.location = Constraint::Only(location);
+            pub fn bridge_location(mut self, location: GeographicLocationConstraint) -> Self {
+                self.protocol.bridge_settings.location =
+                    Constraint::Only(LocationConstraint::from(location));
                 self.constraints.openvpn_constraints.bridge_settings = Constraint::Only(
                     BridgeSettingsFilter::Normal(self.protocol.bridge_settings.clone()),
                 );

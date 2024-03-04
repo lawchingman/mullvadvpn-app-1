@@ -6,9 +6,10 @@ use mullvad_types::{
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     location::Location,
     relay_constraints::{
-        BridgeState, InternalBridgeConstraints, LocationConstraint, OpenVpnConstraints, Ownership,
-        Providers, RelayConstraints, RelayConstraintsFilter, ResolvedLocationConstraint,
-        TransportPort, WireguardConstraints, WireguardConstraintsFilter, OpenVpnConstraintsFilter,
+        BridgeState, InternalBridgeConstraints, LocationConstraint, OpenVpnConstraints,
+        OpenVpnConstraintsFilter, Ownership, Providers, RelayConstraints, RelayConstraintsFilter,
+        ResolvedLocationConstraint, TransportPort, WireguardConstraints,
+        WireguardConstraintsFilter,
     },
     relay_list::{
         OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData, WireguardEndpointData,
@@ -271,10 +272,7 @@ impl WireguardMatcher {
         custom_lists: &CustomListsSettings,
     ) -> RelayMatcher<Self> {
         let locations = ResolvedLocationConstraint::from_constraint(
-            constraints
-                .wireguard_constraints
-                .entry_location
-                .clone(),
+            constraints.wireguard_constraints.entry_location.clone(),
             custom_lists,
         );
 
@@ -296,8 +294,7 @@ impl WireguardMatcher {
         // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
         custom_lists: &CustomListsSettings,
     ) -> RelayMatcher<Self> {
-        let mut matcher =
-            Self::new_matcher(constraints, data.clone(), custom_lists);
+        let mut matcher = Self::new_matcher(constraints, data.clone(), custom_lists);
         matcher.endpoint_matcher = helpers::wireguard_exit_matcher(data);
         matcher
     }

@@ -17,6 +17,8 @@
 // 4. Create a 'query' type/language. I think the smoothest way is to move the
 //    `RelayConstraintBuilder` to the `mullvad-relay-selector` crate.
 //
+// 5. Write tests.
+//
 // X. Remove this TODO-list
 
 mod helpers;
@@ -41,9 +43,9 @@ use mullvad_types::{
     location::{Coordinates, Location},
     relay_constraints::{
         BridgeSettings, BridgeSettingsFilter, BridgeState, InternalBridgeConstraints,
-        ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter,
-        RelayConstraintsFilter, RelayOverride, RelaySettings, ResolvedBridgeSettings,
-        SelectedObfuscation, WireguardConstraints, WireguardConstraintsFilter,
+        ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter, RelayConstraintsFilter,
+        RelayOverride, RelaySettings, ResolvedBridgeSettings, SelectedObfuscation,
+        WireguardConstraints, WireguardConstraintsFilter,
     },
     relay_list::{Relay, RelayList},
     settings::Settings,
@@ -62,7 +64,7 @@ use self::matcher::{AnyTunnelMatcher, RelayDetailer};
 /// [`RETRY_ORDER`] defines an ordered set of relay parameters which the relay selector should prioritize on
 /// successive connection attempts.
 /// in successive retry attempts: https://linear.app/mullvad/issue/DES-543/optimize-order-of-connection-parameters-when-trying-to-connect
-static RETRY_ORDER: Lazy<Vec<RelayConstraintsFilter>> = Lazy::new(|| {
+pub static RETRY_ORDER: Lazy<Vec<RelayConstraintsFilter>> = Lazy::new(|| {
     use mullvad_types::relay_constraints::builder::{any, openvpn, wireguard};
     vec![
         // 0
@@ -70,7 +72,8 @@ static RETRY_ORDER: Lazy<Vec<RelayConstraintsFilter>> = Lazy::new(|| {
         // 1
         wireguard::new().build(),
         // 2
-        wireguard::new().port(443).build(),
+        // wireguard::new().port(443).build(), // <- TODO(markus): Discuss port 443 requirement with Linus / Oskar.
+        wireguard::new().build(),
         // 3
         wireguard::new()
             .ip_version(wireguard::IpVersion::V6)
@@ -203,6 +206,7 @@ impl SelectorConfig {
 }
 
 /// The return type of `get_relay`.
+#[derive(Debug)]
 pub enum GetRelay {
     Wireguard {
         relay: NormalSelectedRelay,
@@ -369,7 +373,6 @@ impl RelaySelector {
 
     /// Returns a random relay and relay endpoint matching the current constraints.
     pub fn get_relay(&self, retry_attempt: usize) -> Result<GetRelay, Error> {
-        let parsed_relays = &self.parsed_relays.lock().unwrap();
         let config = self.config.lock().unwrap();
         match &config.relay_settings {
             RelaySettings::CustomTunnelEndpoint(custom_relay) => {
@@ -385,9 +388,17 @@ impl RelaySelector {
                     .filter_map(|constraint| constraint.intersection(user_preferences.clone()))
                     .nth(retry_attempt)
                     .unwrap();
-                Self::get_normal_relay(parsed_relays, &config, &constraints)
+                drop(config); // TODO(markus): This is rather ugly!
+                self.get_relay_by_query(constraints)
             }
         }
+    }
+
+    /// Returns random relay and relay endpoint matching `query`.
+    pub fn get_relay_by_query(&self, query: RelayConstraintsFilter) -> Result<GetRelay, Error> {
+        let parsed_relays = &self.parsed_relays.lock().unwrap();
+        let config = self.config.lock().unwrap();
+        Self::get_normal_relay(parsed_relays, &config, &query)
     }
 
     // TODO(markus): Document
