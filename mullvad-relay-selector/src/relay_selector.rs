@@ -30,7 +30,7 @@ use std::{
     time::SystemTime,
 };
 
-use matcher::{BridgeMatcher, OpenVpnMatcher, RelayMatcher, WireguardMatcher};
+use matcher::{BridgeMatcher, RelayMatcher, WireguardMatcher};
 use mullvad_types::{
     constraints::{Constraint, Intersection, Set},
     custom_list::CustomListsSettings,
@@ -40,15 +40,14 @@ use mullvad_types::{
         BridgeSettings, BridgeSettingsFilter, BridgeState, InternalBridgeConstraints,
         ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter, RelayConstraints,
         RelayConstraintsFilter, RelayOverride, RelaySettings, ResolvedBridgeSettings,
-        ResolvedLocationConstraint, TransportPort, WireguardConstraints,
-        WireguardConstraintsFilter,
+        ResolvedLocationConstraint, WireguardConstraints, WireguardConstraintsFilter,
     },
     relay_list::{Relay, RelayList},
     settings::Settings,
     CustomTunnelEndpoint,
 };
 use talpid_types::{
-    net::{obfuscation::ObfuscatorConfig, proxy::CustomProxy, TransportProtocol, TunnelType},
+    net::{obfuscation::ObfuscatorConfig, proxy::CustomProxy, TransportProtocol},
     ErrorExt,
 };
 
@@ -56,7 +55,7 @@ use crate::constants::{MAX_BRIDGE_DISTANCE, MIN_BRIDGE_COUNT};
 use crate::error::Error;
 use crate::parsed_relays::ParsedRelays;
 
-use self::matcher::AnyTunnelMatcher;
+use self::matcher::{AnyTunnelMatcher, EndpointMatcher};
 
 /// [`RETRY_ORDER`] defines the order of constraints which we would like to try to apply
 /// in successive retry attempts: https://linear.app/mullvad/issue/DES-543/optimize-order-of-connection-parameters-when-trying-to-connect
@@ -339,8 +338,7 @@ impl RelaySelector {
         let config = self.config.lock().unwrap();
         let near_location = match &config.relay_settings {
             RelaySettings::Normal(settings) => {
-                let custom_lists = { config.custom_lists.clone() };
-                Self::get_relay_midpoint(parsed_relays, settings, &custom_lists)
+                Self::get_relay_midpoint(parsed_relays, settings, &config)
             }
             _ => None,
         };
@@ -366,8 +364,6 @@ impl RelaySelector {
     }
 
     /// Returns a random relay and relay endpoint matching the current constraints.
-    /// TODO(markus): Look into decomposing this function.
-    #[allow(clippy::type_complexity)] // TODO(markus): Remove
     pub fn get_relay(&self, retry_attempt: usize) -> Result<GetRelay, Error> {
         let parsed_relays = &self.parsed_relays.lock().unwrap();
         let config = self.config.lock().unwrap();
@@ -377,7 +373,16 @@ impl RelaySelector {
             }
             RelaySettings::Normal(_) => {
                 let user_preferences = config.blah();
-                Self::get_normal_relay(parsed_relays, &config, &user_preferences, retry_attempt)
+                // Merge user preferences with the relay selector's default preferences.
+                let _constraints = RETRY_ORDER
+                    .clone()
+                    .into_iter()
+                    .cycle()
+                    .filter_map(|constraint| constraint.intersection(user_preferences.clone()))
+                    .nth(retry_attempt);
+                // TODO(markus): Get rid of this
+                let constraints = RelayConstraints::new();
+                Self::get_normal_relay(parsed_relays, &config, &user_preferences, &constraints)
             }
         }
     }
@@ -387,45 +392,14 @@ impl RelaySelector {
     fn get_normal_relay(
         parsed_relays: &ParsedRelays,
         config: &SelectorConfig,
-        user_preferences: &RelayConstraintsFilter,
-        retry_attempt: usize,
+        // TODO(markus): Use this argument!
+        _user_preferences: &RelayConstraintsFilter,
+        constraints: &RelayConstraints, // TODO(markus): Remove this argument
     ) -> Result<GetRelay, Error> {
-        // Merge user preferences with the relay selector's default preferences.
-        let _constraints = RETRY_ORDER
-            .clone()
-            .into_iter()
-            .cycle()
-            .filter_map(|constraint| constraint.intersection(user_preferences.clone()))
-            .nth(retry_attempt);
-
-        let constraints = RelayConstraints::new();
-        // Filter among all valid relays
-        let relays = Self::get_tunnel_endpoints(
-            parsed_relays,
-            &constraints,
-            config.bridge_state,
-            &config.custom_lists,
-        );
-        // Pick one of the valid relays.
-        let relay = helpers::pick_random_relay(&relays).unwrap().clone();
-        // TODO(markus): Not valid!
-        let matcher = RelayMatcher::new(
-            constraints.clone(),
-            parsed_relays.parsed_list().openvpn.clone(),
-            parsed_relays.parsed_list().wireguard.clone(),
-            &config.custom_lists,
-        );
-        // Fill in the connection details of the chosen relay.
-        let relay = matcher
-            .mullvad_endpoint(&relay)
-            .map(|endpoint| NormalSelectedRelay::new(endpoint, relay.clone()))
-            .unwrap();
-
+        let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints);
         match relay.endpoint {
             MullvadEndpoint::OpenVpn(endpoint) => {
-                let bridge =
-                // TODO(markus): Something is missing .. Should we consider some constraint/filter type?
-                Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config)?;
+                let bridge = Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config)?;
                 Ok(GetRelay::OpenVpn { relay, bridge })
             }
             MullvadEndpoint::Wireguard(ref endpoint) => {
@@ -435,7 +409,7 @@ impl RelaySelector {
                     .then(|| {
                         Self::get_wireguard_entry_relay(
                             parsed_relays,
-                            &constraints,
+                            constraints,
                             &config.custom_lists,
                         )
                     })
@@ -450,7 +424,7 @@ impl RelaySelector {
                         &config.obfuscation_settings,
                         &obfuscator_relay,
                         endpoint,
-                        retry_attempt,
+                        0, // TODO(markus): Get id of this! Should be defined by `user_preferences`.
                     )?
                 };
 
@@ -463,8 +437,40 @@ impl RelaySelector {
         }
     }
 
+    /// Get a single relay matching `constraints`.
+    fn get_normal_relay_inner(
+        parsed_relays: &ParsedRelays,
+        config: &SelectorConfig,
+        constraints: &RelayConstraints, // TODO(markus): This should be the intersection between user preferences and our defaults
+    ) -> NormalSelectedRelay {
+        // Filter among all valid relays
+        let relays = Self::get_tunnel_endpoints(
+            parsed_relays,
+            constraints,
+            config.bridge_state,
+            &config.custom_lists,
+        );
+        // Pick one of the valid relays.
+        let relay = helpers::pick_random_relay(&relays).unwrap().clone();
+        let matcher = RelayMatcher::new(
+            constraints.clone(),
+            parsed_relays.parsed_list().openvpn.clone(),
+            config.bridge_state,
+            parsed_relays.parsed_list().wireguard.clone(),
+            &config.custom_lists,
+        );
+        // Fill in the connection details of the chosen relay.
+        matcher
+            .endpoint_matcher
+            .mullvad_endpoint(&relay)
+            .map(|endpoint| NormalSelectedRelay::new(endpoint, relay.clone()))
+            // TODO(markus): Do not unwrap!
+            .unwrap()
+    }
+
     /// Returns a random relay and relay endpoint matching the given constraints and with
     /// preferences applied.
+    #[cfg(target_os = "android")]
     #[cfg_attr(target_os = "android", allow(unused_variables))]
     fn get_tunnel_endpoints(
         parsed_relays: &ParsedRelays,
@@ -473,65 +479,34 @@ impl RelaySelector {
         custom_lists: &CustomListsSettings,
     ) -> Vec<Relay> {
         let relays = parsed_relays.relays();
+        let matcher = WireguardMatcher::new_matcher(
+            relay_constraints.clone(),
+            relay_constraints.wireguard_constraints.clone(),
+            parsed_relays.parsed_list().wireguard.clone(),
+            custom_lists,
+        );
 
-        #[cfg(target_os = "android")]
-        {
-            let matcher = WireguardMatcher::new_matcher(
-                relay_constraints.clone(),
-                relay_constraints.wireguard_constraints.clone(),
-                parsed_relays.parsed_list().wireguard.clone(),
-                custom_lists,
-            );
+        helpers::get_tunnel_endpoint_internal(&relays, &matcher)
+    }
 
-            helpers::get_tunnel_endpoint_internal(&relays, &matcher)
-        }
-        #[cfg(not(target_os = "android"))]
-        match relay_constraints.tunnel_protocol {
-            Constraint::Only(TunnelType::OpenVpn) => {
-                let mut matcher: RelayMatcher<OpenVpnMatcher> = OpenVpnMatcher::new_matcher(
-                    relay_constraints.clone(),
-                    relay_constraints.openvpn_constraints,
-                    parsed_relays.parsed_list().openvpn.clone(),
-                    custom_lists,
-                );
-
-                // TODO(markus): Is it really necessary to mutate the `relay_matcher` here?
-                // Can't this be part of the matcher logic, or not at all?
-                // TODO(markus): Ask David about this code
-                if matcher.endpoint_matcher.constraints.port.is_any()
-                    && bridge_state == BridgeState::On
-                {
-                    matcher.endpoint_matcher.constraints.port = Constraint::Only(TransportPort {
-                        protocol: TransportProtocol::Tcp,
-                        port: Constraint::Any,
-                    });
-                }
-
-                matcher.filter_matching_relay_list(relays)
-                // helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
-            }
-            Constraint::Only(TunnelType::Wireguard) => {
-                let matcher = WireguardMatcher::new_matcher(
-                    relay_constraints.clone(),
-                    relay_constraints.wireguard_constraints.clone(),
-                    parsed_relays.parsed_list().wireguard.clone(),
-                    custom_lists,
-                );
-
-                matcher.filter_matching_relay_list(relays)
-                // helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
-            }
-            Constraint::Any => {
-                let matcher = RelayMatcher::new(
-                    relay_constraints.clone(),
-                    parsed_relays.parsed_list().openvpn.clone(),
-                    parsed_relays.parsed_list().wireguard.clone(),
-                    custom_lists,
-                );
-                //helpers::get_tunnel_endpoint_internal(parsed_relays.relays(), &matcher)
-                matcher.filter_matching_relay_list(relays)
-            }
-        }
+    #[cfg(not(target_os = "android"))]
+    /// Returns a random relay and relay endpoint matching the given constraints and with
+    /// preferences applied.
+    fn get_tunnel_endpoints(
+        parsed_relays: &ParsedRelays,
+        relay_constraints: &RelayConstraints, // TODO(markus): This should be the intersection between user preferences and our defaults
+        bridge_state: BridgeState,
+        custom_lists: &CustomListsSettings,
+    ) -> Vec<Relay> {
+        let relays = parsed_relays.relays();
+        let matcher = RelayMatcher::new(
+            relay_constraints.clone(),
+            parsed_relays.parsed_list().openvpn.clone(),
+            bridge_state,
+            parsed_relays.parsed_list().wireguard.clone(),
+            custom_lists,
+        );
+        matcher.filter_matching_relay_list(relays)
     }
 
     // TODO(markus): Basically, this should not exist at all. It's job is to use
@@ -736,7 +711,7 @@ impl RelaySelector {
     fn get_relay_midpoint(
         parsed_relays: &ParsedRelays,
         constraints: &RelayConstraints,
-        custom_lists: &CustomListsSettings,
+        config: &SelectorConfig,
     ) -> Option<Coordinates> {
         let (openvpn_data, wireguard_data) = (
             parsed_relays.parsed_list().openvpn.clone(),
@@ -746,8 +721,9 @@ impl RelaySelector {
         let matcher = RelayMatcher::new(
             constraints.clone(),
             openvpn_data,
+            config.bridge_state,
             wireguard_data,
-            custom_lists,
+            &config.custom_lists.clone(),
         );
 
         Self::get_relay_midpoint_inner(parsed_relays, constraints, matcher)

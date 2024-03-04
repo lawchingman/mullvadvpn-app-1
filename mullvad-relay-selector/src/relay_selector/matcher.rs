@@ -6,8 +6,9 @@ use mullvad_types::{
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     location::Location,
     relay_constraints::{
-        LocationConstraint, OpenVpnConstraints, Ownership, Providers, RelayConstraints,
-        RelayConstraintsFilter, ResolvedLocationConstraint, TransportPort, WireguardConstraints,
+        BridgeState, LocationConstraint, OpenVpnConstraints, Ownership, Providers,
+        RelayConstraints, RelayConstraintsFilter, ResolvedLocationConstraint, TransportPort,
+        WireguardConstraints,
     },
     relay_list::{
         OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData, WireguardEndpointData,
@@ -18,7 +19,9 @@ use rand::{
     Rng,
 };
 use std::net::{IpAddr, SocketAddr};
-use talpid_types::net::{all_of_the_internet, wireguard, Endpoint, IpVersion, TunnelType};
+use talpid_types::net::{
+    all_of_the_internet, wireguard, Endpoint, IpVersion, TransportProtocol, TunnelType,
+};
 
 use super::helpers;
 
@@ -37,6 +40,7 @@ impl RelayMatcher<AnyTunnelMatcher> {
     pub fn new(
         constraints: RelayConstraints,
         openvpn_data: OpenVpnEndpointData,
+        brige_state: BridgeState,
         wireguard_data: WireguardEndpointData,
         custom_lists: &CustomListsSettings,
     ) -> Self {
@@ -49,7 +53,11 @@ impl RelayMatcher<AnyTunnelMatcher> {
             ownership: constraints.ownership,
             endpoint_matcher: AnyTunnelMatcher {
                 wireguard: WireguardMatcher::new(constraints.wireguard_constraints, wireguard_data),
-                openvpn: OpenVpnMatcher::new(constraints.openvpn_constraints, openvpn_data),
+                openvpn: OpenVpnMatcher::new(
+                    constraints.openvpn_constraints,
+                    openvpn_data,
+                    brige_state,
+                ),
                 tunnel_type: constraints.tunnel_protocol,
             },
         }
@@ -95,10 +103,6 @@ impl<T: EndpointMatcher> RelayMatcher<T> {
             })
             .cloned()
             .collect()
-    }
-
-    pub fn mullvad_endpoint(&self, relay: &Relay) -> Option<MullvadEndpoint> {
-        self.endpoint_matcher.mullvad_endpoint(relay)
     }
 }
 
@@ -368,27 +372,19 @@ pub struct OpenVpnMatcher {
 }
 
 impl OpenVpnMatcher {
-    pub const fn new(constraints: OpenVpnConstraints, data: OpenVpnEndpointData) -> Self {
-        Self { constraints, data }
-    }
-
-    pub fn new_matcher(
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
-        relay_constraints: RelayConstraints,
-        constraints: OpenVpnConstraints,
+    pub fn new(
+        mut constraints: OpenVpnConstraints,
         data: OpenVpnEndpointData,
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
-        custom_lists: &CustomListsSettings,
-    ) -> RelayMatcher<Self> {
-        RelayMatcher {
-            locations: ResolvedLocationConstraint::from_constraint(
-                relay_constraints.location,
-                custom_lists,
-            ),
-            providers: relay_constraints.providers,
-            ownership: relay_constraints.ownership,
-            endpoint_matcher: OpenVpnMatcher::new(constraints, data),
+        bridge_state: BridgeState,
+    ) -> Self {
+        // TODO(markus): Seems like a hack
+        if constraints.port.is_any() && bridge_state == BridgeState::On {
+            constraints.port = Constraint::Only(TransportPort {
+                protocol: TransportProtocol::Tcp,
+                port: Constraint::Any,
+            });
         }
+        Self { constraints, data }
     }
 
     /// Choose a valid OpenVPN port.
