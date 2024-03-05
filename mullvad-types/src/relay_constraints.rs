@@ -427,6 +427,25 @@ pub enum GeographicLocationConstraint {
 }
 
 impl GeographicLocationConstraint {
+    /// Create a new [`GeographicLocationConstraint`] given a country.
+    pub fn country(country: impl Into<String>) -> Self {
+        GeographicLocationConstraint::Country(country.into())
+    }
+
+    /// Create a new [`GeographicLocationConstraint`] given a country and city.
+    pub fn city(country: impl Into<String>, city: impl Into<String>) -> Self {
+        GeographicLocationConstraint::City(country.into(), city.into())
+    }
+
+    /// Create a new [`GeographicLocationConstraint`] given a country, city and hostname.
+    pub fn hostname(
+        country: impl Into<String>,
+        city: impl Into<String>,
+        hostname: impl Into<String>,
+    ) -> Self {
+        GeographicLocationConstraint::Hostname(country.into(), city.into(), hostname.into())
+    }
+
     pub fn matches_with_opts(&self, relay: &Relay, ignore_include_in_country: bool) -> bool {
         match self {
             GeographicLocationConstraint::Country(ref country) => {
@@ -587,9 +606,11 @@ pub struct Providers {
 pub struct NoProviders(());
 
 impl Providers {
-    pub fn new(providers: impl Iterator<Item = Provider>) -> Result<Providers, NoProviders> {
+    pub fn new(
+        providers: impl IntoIterator<Item = impl Into<Provider>>,
+    ) -> Result<Providers, NoProviders> {
         let providers = Providers {
-            providers: providers.collect(),
+            providers: providers.into_iter().map(Into::into).collect(),
         };
         if providers.providers.is_empty() {
             return Err(NoProviders(()));
@@ -1324,7 +1345,7 @@ pub mod builder {
         use crate::{
             constraints::Constraint,
             relay_constraints::{
-                GeographicLocationConstraint, Udp2TcpObfuscationSettings,
+                GeographicLocationConstraint, SelectedObfuscation, Udp2TcpObfuscationSettings,
                 WireguardConstraintsFilter,
             },
         };
@@ -1411,6 +1432,7 @@ pub mod builder {
                     obfuscation: obfuscation.clone(),
                 };
                 self.constraints.wireguard_constraints.udp2tcp_port = Constraint::Only(obfuscation);
+                self.constraints.wireguard_constraints.obfuscation = SelectedObfuscation::Udp2Tcp;
                 RelayConstraintBuilder {
                     constraints: self.constraints,
                     protocol,

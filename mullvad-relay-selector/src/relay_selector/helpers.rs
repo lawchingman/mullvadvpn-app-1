@@ -81,29 +81,34 @@ pub fn wireguard_exit_matcher(wg: WireguardEndpointData) -> WireguardMatcher {
 }
 
 pub fn get_udp2tcp_obfuscator(
+    obfuscation_settings_constraint: &Constraint<Udp2TcpObfuscationSettings>,
     udp2tcp_ports: &[u16],
-    obfuscation_settings: &Udp2TcpObfuscationSettings,
-    relay: &Relay,
+    relay: Relay,
     endpoint: &MullvadWireguardEndpoint,
 ) -> Option<SelectedObfuscator> {
-    let udp2tcp_endpoint = if obfuscation_settings.port.is_only() {
-        udp2tcp_ports
-            .iter()
-            .find(|&candidate| obfuscation_settings.port == Constraint::Only(*candidate))
-    } else {
-        // Just return a 'random' port
-        // TODO(markus): Can this randomness be pushsed up the stack?
-        udp2tcp_ports.choose(&mut thread_rng())
+    let udp2tcp_endpoint_port =
+        get_udp2tcp_obfuscator_port(obfuscation_settings_constraint, udp2tcp_ports)?;
+    let config = ObfuscatorConfig::Udp2Tcp {
+        endpoint: SocketAddr::new(endpoint.peer.endpoint.ip(), udp2tcp_endpoint_port),
     };
 
-    udp2tcp_endpoint
-        .map(|udp2tcp_endpoint| ObfuscatorConfig::Udp2Tcp {
-            endpoint: SocketAddr::new(endpoint.peer.endpoint.ip(), *udp2tcp_endpoint),
-        })
-        .map(|config| SelectedObfuscator {
-            config,
-            relay: relay.clone(),
-        })
+    Some(SelectedObfuscator { config, relay })
+}
+
+pub fn get_udp2tcp_obfuscator_port(
+    obfuscation_settings_constraint: &Constraint<Udp2TcpObfuscationSettings>,
+    udp2tcp_ports: &[u16],
+) -> Option<u16> {
+    match obfuscation_settings_constraint {
+        Constraint::Only(obfuscation_settings) if obfuscation_settings.port.is_only() => {
+            udp2tcp_ports
+                .iter()
+                .find(|&candidate| obfuscation_settings.port == Constraint::Only(*candidate))
+                .copied()
+        }
+        // There are no specific obfuscation settings to take into consideration in this case.
+        Constraint::Any | Constraint::Only(_) => udp2tcp_ports.choose(&mut thread_rng()).copied(),
+    }
 }
 
 // TODO(markus): This is not enough, right?

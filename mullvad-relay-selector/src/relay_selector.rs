@@ -19,6 +19,9 @@
 //
 // 5. Write tests.
 //
+// 6. Create an `ARCHITECTURE.md`, isch. Something that describes how the relay selector works,
+//    such that other people can read it and understand wtfrick is going on.
+//
 // X. Remove this TODO-list
 
 mod helpers;
@@ -52,7 +55,7 @@ use mullvad_types::{
     CustomTunnelEndpoint,
 };
 use talpid_types::{
-    net::{obfuscation::ObfuscatorConfig, proxy::CustomProxy, TransportProtocol},
+    net::{obfuscation::ObfuscatorConfig, proxy::CustomProxy, TransportProtocol, TunnelType},
     ErrorExt,
 };
 
@@ -72,8 +75,7 @@ pub static RETRY_ORDER: Lazy<Vec<RelayConstraintsFilter>> = Lazy::new(|| {
         // 1
         wireguard::new().build(),
         // 2
-        // wireguard::new().port(443).build(), // <- TODO(markus): Discuss port 443 requirement with Linus / Oskar.
-        wireguard::new().build(),
+        wireguard::new().port(443).build(),
         // 3
         wireguard::new()
             .ip_version(wireguard::IpVersion::V6)
@@ -206,7 +208,7 @@ impl SelectorConfig {
 }
 
 /// The return type of `get_relay`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum GetRelay {
     Wireguard {
         relay: NormalSelectedRelay,
@@ -231,25 +233,25 @@ impl GetRelay {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum SelectedBridge {
     Normal { settings: CustomProxy, relay: Relay },
     Custom(CustomProxy),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum SelectedRelay {
     Normal(NormalSelectedRelay),
     Custom(CustomTunnelEndpoint),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct NormalSelectedRelay {
     pub exit_relay: Relay,
     pub endpoint: MullvadEndpoint,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SelectedObfuscator {
     pub config: ObfuscatorConfig,
     pub relay: Relay,
@@ -380,18 +382,31 @@ impl RelaySelector {
             }
             RelaySettings::Normal(_) => {
                 let user_preferences = config.blah();
-                // Merge user preferences with the relay selector's default preferences.
-                let constraints = RETRY_ORDER
-                    .clone()
-                    .into_iter()
-                    .cycle()
-                    .filter_map(|constraint| constraint.intersection(user_preferences.clone()))
-                    .nth(retry_attempt)
-                    .unwrap();
                 drop(config); // TODO(markus): This is rather ugly!
-                self.get_relay_by_query(constraints)
+                self.get_relay_by_query_and_blah(user_preferences, &RETRY_ORDER, retry_attempt)
             }
         }
+    }
+
+    /// Returns random relay and relay endpoint matching `query`.
+    // TODO(markus): Rename, only used for testing.. For now
+    pub(crate) fn get_relay_by_query_and_blah(
+        &self,
+        query: RelayConstraintsFilter,
+        retry_order: &[RelayConstraintsFilter],
+        retry_attempt: usize,
+    ) -> Result<GetRelay, Error> {
+        let parsed_relays = &self.parsed_relays.lock().unwrap();
+        let config = self.config.lock().unwrap();
+        // Merge user preferences with the relay selector's default preferences.
+        let constraints = retry_order
+            .iter()
+            .cycle()
+            .filter_map(|constraint| constraint.clone().intersection(query.clone()))
+            .nth(retry_attempt)
+            .unwrap();
+
+        Self::get_normal_relay(parsed_relays, &config, &constraints)
     }
 
     /// Returns random relay and relay endpoint matching `query`.
@@ -408,17 +423,20 @@ impl RelaySelector {
         config: &SelectorConfig,
         constraints: &RelayConstraintsFilter,
     ) -> Result<GetRelay, Error> {
-        let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints)
-            .ok_or(Error::NoRelay)?;
-        match relay.endpoint {
-            MullvadEndpoint::OpenVpn(endpoint) => {
-                let bridge = helpers::should_use_bridge(config)
-                    .then(|| Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config))
-                    .transpose()?
-                    .flatten();
-                Ok(GetRelay::OpenVpn { relay, bridge })
-            }
-            MullvadEndpoint::Wireguard(ref endpoint) => {
+        match constraints.tunnel_protocol {
+            Constraint::Only(TunnelType::Wireguard) => {
+                // TODO(markus): This should really be:
+                // (exit <- get_relay, entry <- get_relay(exit)) <|> (entry <- get_relay, exit <- get_relay(entry))
+                //
+                // Sometimes, exit is more specific than entry.
+                // If the exit constraint is more specific than the entry constraint, we should
+                // probably pick the exit relay first to not run out of candidates and vice versa.
+                //
+                // The only case that should not be supported is if entry.hostname = exit.hostname,
+                // otherwise we should be able to resolve entry + exit.
+                let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints)
+                    .ok_or(Error::NoRelay)?;
+
                 let entry = constraints
                     .wireguard_constraints
                     .multihop()
@@ -432,18 +450,24 @@ impl RelaySelector {
                     })
                     .transpose()?;
 
-                let obfuscator = {
-                    let obfuscator_relay = entry.clone().unwrap_or(relay.exit_relay.clone());
-                    let udp2tcp_ports = parsed_relays.parsed_list().wireguard.udp2tcp_ports.clone();
+                let obfuscator = match relay.endpoint {
+                    MullvadEndpoint::Wireguard(ref endpoint) => {
+                        let obfuscator = {
+                            let obfuscator_relay =
+                                entry.clone().unwrap_or(relay.exit_relay.clone());
+                            let udp2tcp_ports =
+                                parsed_relays.parsed_list().wireguard.udp2tcp_ports.clone();
 
-                    Self::get_obfuscator(
-                        &udp2tcp_ports,
-                        // TODO(markus): Pass down the merge between user preferences and our
-                        // defaults.
-                        &config.obfuscation_settings,
-                        &obfuscator_relay,
-                        endpoint,
-                    )
+                            Self::get_obfuscator(
+                                constraints,
+                                &udp2tcp_ports,
+                                &obfuscator_relay,
+                                endpoint,
+                            )
+                        };
+                        obfuscator
+                    }
+                    _ => None, // TODO(markus): Yuck.
                 };
 
                 Ok(GetRelay::Wireguard {
@@ -451,6 +475,35 @@ impl RelaySelector {
                     entry,
                     obfuscator,
                 })
+            }
+            Constraint::Only(TunnelType::OpenVpn) => {
+                let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints)
+                    .ok_or(Error::NoRelay)?;
+                let bridge = match relay.endpoint {
+                    MullvadEndpoint::OpenVpn(endpoint) => helpers::should_use_bridge(config)
+                        .then(|| {
+                            Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config)
+                        })
+                        .transpose()?
+                        .flatten(),
+                    _ => None, // TODO(markus): Yuck.
+                };
+                Ok(GetRelay::OpenVpn { relay, bridge })
+            }
+            // TODO(markus): Clean up
+            Constraint::Any => {
+                // Try Wireguard, then OpenVPN.
+                for tunnel_type in [TunnelType::Wireguard, TunnelType::OpenVpn] {
+                    let mut new_constraints = constraints.clone();
+                    new_constraints.tunnel_protocol = Constraint::Only(tunnel_type);
+                    // If a suitable relay is found, return it.
+                    if let Ok(relay) =
+                        Self::get_normal_relay(parsed_relays, config, &new_constraints)
+                    {
+                        return Ok(relay);
+                    }
+                }
+                Err(Error::NoRelay)
             }
         }
     }
@@ -469,7 +522,8 @@ impl RelaySelector {
             &config.custom_lists,
         );
         // Pick one of the valid relays.
-        let relay = helpers::pick_random_relay(&relays).unwrap().clone();
+        let relay = helpers::pick_random_relay(&relays).cloned()?;
+        // TODO(markus): Do not create an entire matcher, only create a `RelayDetailer`.
         let matcher = RelayMatcher::new(
             constraints.clone(),
             parsed_relays.parsed_list().openvpn.clone(),
@@ -584,17 +638,17 @@ impl RelaySelector {
     }
 
     pub fn get_obfuscator(
+        query: &RelayConstraintsFilter,
         udp2tcp_ports: &[u16],
-        obfuscation_settings: &ObfuscationSettings,
         relay: &Relay,
         endpoint: &MullvadWireguardEndpoint,
     ) -> Option<SelectedObfuscator> {
-        match obfuscation_settings.selected_obfuscation {
+        match query.wireguard_constraints.obfuscation {
             SelectedObfuscation::Off | SelectedObfuscation::Auto => None,
             SelectedObfuscation::Udp2Tcp => helpers::get_udp2tcp_obfuscator(
+                &query.wireguard_constraints.udp2tcp_port,
                 udp2tcp_ports,
-                &obfuscation_settings.udp2tcp,
-                relay,
+                relay.clone(),
                 endpoint,
             ),
         }
