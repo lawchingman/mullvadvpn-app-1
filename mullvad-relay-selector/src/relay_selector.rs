@@ -430,7 +430,7 @@ impl RelaySelector {
                             &config.custom_lists,
                         )
                     })
-                    .flatten();
+                    .transpose()?;
 
                 let obfuscator = {
                     let obfuscator_relay = entry.clone().unwrap_or(relay.exit_relay.clone());
@@ -548,12 +548,15 @@ impl RelaySelector {
     /// NOTE: If not using multihop then `location` is set as the only location constraint.
     /// If using multihop then location is the exit constraint and
     /// `wireguard_constraints.entry_location` is set as the entry location constraint.
+    ///
+    /// Returns an error if no matching relay is found, OR the constraints forces the entry
+    /// relay to be the same as the exit relay.
     fn get_wireguard_entry_relay(
         exit_relay: Relay,
         parsed_relays: &ParsedRelays,
         constraints: &RelayConstraintsFilter,
         custom_lists: &CustomListsSettings,
-    ) -> Option<Relay> {
+    ) -> Result<Relay, Error> {
         // TODO(markus) This should be used to get a set of valid entry relays.
         let entry_matcher = WireguardMatcher::new_entry_matcher(
             constraints.clone(),
@@ -568,16 +571,16 @@ impl RelaySelector {
             custom_lists,
         );
 
-        Self::get_wireguard_multihop_endpoint(
+        let candidates = Self::get_wireguard_multihop_endpoint(
             exit_relay,
             parsed_relays,
             entry_matcher,
             exit_matcher,
-        )
-        .ok()
-        .as_ref()
-        .and_then(|relays| helpers::pick_random_relay(relays))
-        .cloned()
+        )?;
+
+        helpers::pick_random_relay(&candidates)
+            .ok_or(Error::NoRelay)
+            .cloned()
     }
 
     pub fn get_obfuscator(
