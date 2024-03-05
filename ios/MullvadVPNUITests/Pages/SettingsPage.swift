@@ -16,6 +16,13 @@ class SettingsPage: Page {
         self.pageAccessibilityIdentifier = .settingsTableView
     }
 
+    @discardableResult func tapDoneButton() -> Self {
+        app.buttons[AccessibilityIdentifier.settingsDoneButton]
+            .tap()
+
+        return self
+    }
+
     @discardableResult func tapVPNSettingsCell() -> Self {
         app.tables[AccessibilityIdentifier.settingsTableView]
             .cells[AccessibilityIdentifier.preferencesCell]
@@ -27,30 +34,6 @@ class SettingsPage: Page {
     @discardableResult func tapReportAProblemCell() -> Self {
         app.tables[AccessibilityIdentifier.settingsTableView]
             .cells[AccessibilityIdentifier.problemReportCell]
-            .tap()
-
-        return self
-    }
-
-    @discardableResult func tapDNSSettingsCell() -> Self {
-        app.tables
-            .cells[AccessibilityIdentifier.dnsSettings]
-            .tap()
-
-        return self
-    }
-
-    @discardableResult func tapDNSContentBlockingHeaderExpandButton() -> Self {
-        let headerView = app.otherElements[AccessibilityIdentifier.dnsContentBlockersHeaderView]
-        let expandButton = headerView.buttons[AccessibilityIdentifier.collapseButton]
-        expandButton.tap()
-
-        return self
-    }
-
-    @discardableResult func tapBlockAdsSwitch() -> Self {
-        app.cells[AccessibilityIdentifier.blockAdvertising]
-            .switches[AccessibilityIdentifier.customSwitch]
             .tap()
 
         return self

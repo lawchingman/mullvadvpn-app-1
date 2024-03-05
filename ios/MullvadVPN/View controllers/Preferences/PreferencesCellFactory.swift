@@ -84,6 +84,7 @@ final class PreferencesCellFactory: CellFactoryProtocol {
                 comment: ""
             )
 
+            cell.textField.accessibilityIdentifier = .customWireGuardPortTextField
             cell.accessibilityIdentifier = item.accessibilityIdentifier
             cell.applySubCellStyling()
 
@@ -153,7 +154,7 @@ final class PreferencesCellFactory: CellFactoryProtocol {
                 value: portString,
                 comment: ""
             )
-            cell.accessibilityIdentifier = "\(item.accessibilityIdentifier.rawValue) (\(portString))"
+            cell.accessibilityIdentifier = "\(item.accessibilityIdentifier.rawValue)\(portString)"
             cell.applySubCellStyling()
 
         #if DEBUG
