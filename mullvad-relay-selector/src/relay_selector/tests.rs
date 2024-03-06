@@ -8,10 +8,10 @@ use mullvad_types::{
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     relay_constraints::{
         builder::{any, openvpn, wireguard},
-        BridgeState, GeographicLocationConstraint, LocationConstraint, ObfuscationSettings,
-        OpenVpnConstraints, OpenVpnConstraintsFilter, Ownership, Providers, RelayConstraints,
-        RelayConstraintsFilter, RelaySettings, SelectedObfuscation, TransportPort,
-        WireguardConstraints,
+        BridgeConstraints, BridgeSettingsFilter, BridgeState, GeographicLocationConstraint,
+        LocationConstraint, ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter,
+        Ownership, Providers, RelayConstraints, RelayConstraintsFilter, RelaySettings,
+        SelectedObfuscation, TransportPort, WireguardConstraints,
     },
     relay_list::{
         BridgeEndpointData, OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData,
@@ -27,7 +27,10 @@ use talpid_types::net::{
 
 use crate::{
     error::Error,
-    relay_selector::{helpers, matcher::OpenVpnMatcher},
+    relay_selector::{
+        helpers::{self, should_use_bridge},
+        matcher::OpenVpnMatcher,
+    },
     relay_selector::{NormalSelectedRelay, RelaySelector, SelectedRelay, SelectorConfig},
     GetRelay,
 };
@@ -464,12 +467,10 @@ fn test_openvpn_constraints() {
 #[test]
 fn test_selecting_wireguard_location_will_consider_multihop() {
     let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
-    let query = wireguard::new().multihop().build();
 
     for retry_attempt in 0..100 {
-        let relay = relay_selector
-            .get_relay_by_query_and_blah(query.clone(), &RETRY_ORDER, retry_attempt)
-            .unwrap();
+        let query = wireguard::new().multihop().build();
+        let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
         match relay {
             GetRelay::Wireguard { entry, .. } => {
                 assert!(entry.is_some());
@@ -684,9 +685,39 @@ fn test_providers() {
 /// Verify that bridges are automatically used when bridge mode is set
 /// to automatic.
 #[test]
-fn test_auto_bridge() {
-    // TODO(markus): Device a test that is not directly tied to the implementation of any function in the relay selector.
-    // Maybe we should define a custom strategy to use for each test case?
+fn test_openvpn_auto_bridge() {
+    let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
+    let retry_order = [
+        // This attempt should not use bridge
+        openvpn::new().build(),
+        // This attempt should use a bridge
+        openvpn::new().bridge().build(),
+    ];
+    let should_use_bridge = |query: &RelayConstraintsFilter| {
+        // TODO: This is really leaky ..
+        matches!(
+            query.openvpn_constraints.bridge_settings,
+            Constraint::Only(BridgeSettingsFilter::Normal(_))
+        )
+    };
+
+    for (retry_attempt, query) in retry_order.iter().cycle().enumerate().take(100) {
+        let relay = relay_selector
+            .get_relay_by_query_and_blah(&retry_order, retry_attempt)
+            .unwrap();
+        match relay {
+            GetRelay::OpenVpn { bridge, .. } => {
+                if should_use_bridge(query) {
+                    assert!(bridge.is_some())
+                } else {
+                    assert!(bridge.is_none())
+                }
+            }
+            wrong_relay => panic!(
+                "Relay selector should have picked an OpenVPN relay, instead chose {wrong_relay:?}"
+            ),
+        }
+    }
 }
 
 /// Ensure that `include_in_country` is ignored if all relays have it set to false (i.e., some

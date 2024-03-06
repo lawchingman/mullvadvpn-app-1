@@ -381,9 +381,8 @@ impl RelaySelector {
                 Ok(GetRelay::Custom(custom_relay.clone()))
             }
             RelaySettings::Normal(_) => {
-                let user_preferences = config.blah();
                 drop(config); // TODO(markus): This is rather ugly!
-                self.get_relay_by_query_and_blah(user_preferences, &RETRY_ORDER, retry_attempt)
+                self.get_relay_by_query_and_blah(&RETRY_ORDER, retry_attempt)
             }
         }
     }
@@ -392,17 +391,17 @@ impl RelaySelector {
     // TODO(markus): Rename, only used for testing.. For now
     pub(crate) fn get_relay_by_query_and_blah(
         &self,
-        query: RelayConstraintsFilter,
         retry_order: &[RelayConstraintsFilter],
         retry_attempt: usize,
     ) -> Result<GetRelay, Error> {
         let parsed_relays = &self.parsed_relays.lock().unwrap();
         let config = self.config.lock().unwrap();
         // Merge user preferences with the relay selector's default preferences.
+        let user_preferences = config.blah();
         let constraints = retry_order
             .iter()
             .cycle()
-            .filter_map(|constraint| constraint.clone().intersection(query.clone()))
+            .filter_map(|constraint| constraint.clone().intersection(user_preferences.clone()))
             .nth(retry_attempt)
             .unwrap();
 
@@ -480,12 +479,14 @@ impl RelaySelector {
                 let relay = Self::get_normal_relay_inner(parsed_relays, config, constraints)
                     .ok_or(Error::NoRelay)?;
                 let bridge = match relay.endpoint {
-                    MullvadEndpoint::OpenVpn(endpoint) => helpers::should_use_bridge(config)
-                        .then(|| {
-                            Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config)
-                        })
-                        .transpose()?
-                        .flatten(),
+                    MullvadEndpoint::OpenVpn(endpoint) => {
+                        helpers::should_use_bridge(&constraints.openvpn_constraints.bridge_settings)
+                            .then(|| {
+                                Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config)
+                            })
+                            .transpose()?
+                            .flatten()
+                    }
                     _ => None, // TODO(markus): Yuck.
                 };
                 Ok(GetRelay::OpenVpn { relay, bridge })
