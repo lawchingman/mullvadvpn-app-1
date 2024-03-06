@@ -169,7 +169,7 @@ impl SelectorConfig {
             OpenVpnConstraintsFilter {
                 port: openvpn_constraints.port,
                 bridge_settings: match bridge_state {
-                    BridgeState::On | BridgeState::Auto => match bridge_settings.bridge_type {
+                    BridgeState::On => match bridge_settings.bridge_type {
                         mullvad_types::relay_constraints::BridgeType::Normal => Constraint::Only(
                             BridgeSettingsFilter::Normal(bridge_settings.normal.clone()),
                         ),
@@ -177,6 +177,7 @@ impl SelectorConfig {
                             BridgeSettingsFilter::Custom(bridge_settings.custom.clone()),
                         ),
                     },
+                    BridgeState::Auto => Constraint::Only(BridgeSettingsFilter::Auto),
                     BridgeState::Off => Constraint::Only(BridgeSettingsFilter::Off),
                 },
             }
@@ -482,7 +483,20 @@ impl RelaySelector {
                     MullvadEndpoint::OpenVpn(endpoint) => {
                         helpers::should_use_bridge(&constraints.openvpn_constraints.bridge_settings)
                             .then(|| {
-                                Self::get_bridge(&relay, &endpoint.protocol, parsed_relays, config)
+                                // TODO(markus): This should be returned from `should_use_bridge`?
+                                // TODO(markus): This seems really off
+                                let tmp = &constraints
+                                    .openvpn_constraints
+                                    .bridge_settings
+                                    .clone()
+                                    .unwrap();
+                                Self::get_bridge(
+                                    tmp,
+                                    &relay,
+                                    &endpoint.protocol,
+                                    parsed_relays,
+                                    &config.custom_lists,
+                                )
                             })
                             .transpose()?
                             .flatten()
@@ -658,15 +672,17 @@ impl RelaySelector {
     /// TODO(markus): Document
     /// TODO(markus): Justify
     fn get_bridge(
+        query: &BridgeSettingsFilter,
         relay: &NormalSelectedRelay,
         protocol: &TransportProtocol,
         parsed_relays: &ParsedRelays,
-        config: &SelectorConfig,
+        custom_lists: &CustomListsSettings,
     ) -> Result<Option<SelectedBridge>, Error> {
-        let bridge_settings = config
-            .bridge_settings
-            .resolve()
-            .map_err(Error::InvalidBridgeSettings)?;
+        // TODO(markus): Shouldn't this be somewhere else if not here??
+        // let bridge_settings = config
+        //     .bridge_settings
+        //     .resolve()
+        //     .map_err(Error::InvalidBridgeSettings)?;
 
         match protocol {
             TransportProtocol::Udp => {
@@ -680,26 +696,23 @@ impl RelaySelector {
                     .as_ref()
                     .expect("Relay has no location set");
                 Ok(Self::get_bridge_for(
-                    parsed_relays,
-                    &bridge_settings,
+                    query,
                     location,
-                    &config.custom_lists,
+                    parsed_relays,
+                    custom_lists,
                 ))
             }
         }
     }
 
     fn get_bridge_for(
-        parsed_relays: &ParsedRelays,
-        config: &ResolvedBridgeSettings<'_>,
+        query: &BridgeSettingsFilter,
         location: &Location,
+        parsed_relays: &ParsedRelays,
         custom_lists: &CustomListsSettings,
     ) -> Option<SelectedBridge> {
-        match *config {
-            ResolvedBridgeSettings::Custom(settings) => {
-                Some(SelectedBridge::Custom(settings.clone()))
-            }
-            ResolvedBridgeSettings::Normal(settings) => {
+        match query {
+            BridgeSettingsFilter::Normal(settings) => {
                 let bridge_constraints = InternalBridgeConstraints {
                     location: settings.location.clone(),
                     providers: settings.providers.clone(),
@@ -716,6 +729,8 @@ impl RelaySelector {
                 )
                 .map(|(settings, relay)| SelectedBridge::Normal { settings, relay })
             }
+            BridgeSettingsFilter::Custom(settings) => settings.clone().map(SelectedBridge::Custom),
+            BridgeSettingsFilter::Off | BridgeSettingsFilter::Auto => None,
         }
     }
 

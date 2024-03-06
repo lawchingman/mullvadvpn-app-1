@@ -121,8 +121,8 @@ pub fn get_udp2tcp_obfuscator_port(
 pub const fn should_use_bridge(bridge_constraints: &Constraint<BridgeSettingsFilter>) -> bool {
     match bridge_constraints {
         Constraint::Only(settings) => match settings {
-            BridgeSettingsFilter::Off => false,
             BridgeSettingsFilter::Normal(_) | BridgeSettingsFilter::Custom(_) => true,
+            BridgeSettingsFilter::Off | BridgeSettingsFilter::Auto => false,
         },
         Constraint::Any => false,
     }
