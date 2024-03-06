@@ -244,6 +244,26 @@ fn test_retry_order() {
     }
 }
 
+/// Verify that Wireguard is prefered if the tunnel type is set to auto.
+#[test]
+fn prefer_wireguard_when_auto() {
+    let query = any().build();
+
+    let config = {
+        let mut config = SelectorConfig::default();
+        // Turn on bridge state. This is only relevant when selecting OpenVPN relays, but turning
+        // this configuration option should not prompt the relay selector to prefer OpenVPN.
+        config.bridge_state = BridgeState::On;
+        config
+    };
+    let relay_selector = RelaySelector::from_list(config, RELAYS.clone());
+    for _ in 0..100 {
+        let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
+        let tunnel_type = tunnel_type(&get_relay(relay));
+        assert_eq!(tunnel_type, TunnelType::Wireguard);
+    }
+}
+
 /// If a Wireguard relay is only specified by it's hostname (and not tunnel type), the relay selector should
 /// still return a relay of the correct tunnel type (Wireguard).
 #[test]
@@ -701,7 +721,12 @@ fn test_openvpn_auto_bridge() {
         )
     };
 
-    for (retry_attempt, query) in retry_order.iter().cycle().enumerate().take(100) {
+    for (retry_attempt, query) in retry_order
+        .iter()
+        .cycle()
+        .enumerate()
+        .take(100 * retry_order.len())
+    {
         let relay = relay_selector
             .get_relay_by_query_and_blah(&retry_order, retry_attempt)
             .unwrap();
@@ -801,17 +826,12 @@ fn test_include_in_country() {
     };
 
     // If include_in_country is false for all relays, a relay must be selected anyway.
-    //
-
     let relay_selector = RelaySelector::from_list(SelectorConfig::default(), relay_list.clone());
     assert!(relay_selector.get_relay(0).is_ok());
 
     // If include_in_country is true for some relay, it must always be selected.
-    //
-
     relay_list.countries[0].cities[0].relays[0].include_in_country = true;
     let expected_hostname = relay_list.countries[0].cities[0].relays[0].hostname.clone();
-
     let relay_selector = RelaySelector::from_list(SelectorConfig::default(), relay_list);
     let relay = relay_selector.get_relay(0).expect("expected match").relay();
 
@@ -830,120 +850,75 @@ fn test_include_in_country() {
     )
 }
 
-/*
-// TODO(markus): Come up with a better test.
+/// Verify that the relay selector ignores bridge state when WireGuard should be used.
 #[test]
-fn test_bridge_constraints() {
-    let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
-    let location = GeographicLocationConstraint::hostname("se", "got", "se-got-001");
-    let relay_constraint = openvpn::new()
-        .transport_protocol(TCP)
-        .build();
-
-
-    // -- Old test --
-    // let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
-    // let location = LocationConstraint::from(GeographicLocationConstraint::Hostname(
-    //     "se".to_string(),
-    //     "got".to_string(),
-    //     "se-got-001".to_string(),
-    // ));
-    // let mut relay_constraints = RelayConstraints {
-    //     location: Constraint::Only(location),
-    //     tunnel_protocol: Constraint::Any,
-    //     ..RelayConstraints::default()
-    // };
-    // relay_constraints.openvpn_constraints.port = Constraint::Only(TransportPort {
-    //     protocol: TransportProtocol::Udp,
-    //     port: Constraint::Any,
-    // });
-
-    // let relays: Vec<Relay> = {
-    //     let parsed_relays = relay_selector.parsed_relays.lock().unwrap();
-    //     parsed_relays.relays().cloned().collect()
-    // };
-
-    // let preferred = helpers::preferred_constraints(
-    //     &relays,
-    //     &relay_constraints,
-    //     BridgeState::On,
-    //     0,
-    //     &CustomListsSettings::default(),
-    // );
-    // assert_eq!(
-    //     preferred.tunnel_protocol,
-    //     Constraint::Only(TunnelType::OpenVpn)
-    // );
-    // // NOTE: TCP is preferred for bridges
-    // assert_eq!(
-    //     preferred.openvpn_constraints.port,
-    //     Constraint::Only(TransportPort {
-    //         protocol: TransportProtocol::Tcp,
-    //         port: Constraint::Any,
-    //     })
-    // );
-
-    // // Ignore bridge state where WireGuard is used
-    // let location = LocationConstraint::from(GeographicLocationConstraint::Hostname(
-    //     "se".to_string(),
-    //     "got".to_string(),
-    //     "se10-wireguard".to_string(),
-    // ));
-    // let relay_constraints = RelayConstraints {
-    //     location: Constraint::Only(location),
-    //     tunnel_protocol: Constraint::Any,
-    //     ..RelayConstraints::default()
-    // };
-    // let preferred = helpers::preferred_constraints(
-    //     &relays,
-    //     &relay_constraints,
-    //     BridgeState::On,
-    //     0,
-    //     &CustomListsSettings::default(),
-    // );
-    // assert_eq!(
-    //     preferred.tunnel_protocol,
-    //     Constraint::Only(TunnelType::Wireguard)
-    // );
-
-    // // Handle bridge setting when falling back on OpenVPN
-    // let mut relay_constraints = RelayConstraints {
-    //     location: Constraint::Any,
-    //     tunnel_protocol: Constraint::Any,
-    //     ..RelayConstraints::default()
-    // };
-    // relay_constraints.openvpn_constraints.port = Constraint::Only(TransportPort {
-    //     protocol: TransportProtocol::Udp,
-    //     port: Constraint::Any,
-    // });
-    // let preferred = helpers::preferred_constraints(
-    //     &relays,
-    //     &relay_constraints,
-    //     BridgeState::On,
-    //     0,
-    //     &CustomListsSettings::default(),
-    // );
-    // assert_eq!(
-    //     preferred.tunnel_protocol,
-    //     Constraint::Only(TunnelType::Wireguard)
-    // );
-    // let preferred = helpers::preferred_constraints(
-    //     &relays,
-    //     &relay_constraints,
-    //     BridgeState::On,
-    //     3,
-    //     &CustomListsSettings::default(),
-    // );
-    // assert_eq!(
-    //     preferred.tunnel_protocol,
-    //     Constraint::Only(TunnelType::OpenVpn)
-    // );
-    // assert_eq!(
-    //     preferred.openvpn_constraints.port,
-    //     Constraint::Only(TransportPort {
-    //         protocol: TransportProtocol::Tcp,
-    //         port: Constraint::Any,
-    //     })
-    // );
+fn ignore_bridge_state_when_wireguard_is_used() {
+    // Note: The location implies a Wireguard relay.
+    let location = GeographicLocationConstraint::hostname("se", "got", "se10-wireguard");
+    // .. while the query otherwise does not.
+    let query = any().location(location).build();
+    let config = {
+        let mut config = SelectorConfig::default();
+        config.bridge_state = BridgeState::On;
+        config
+    };
+    let relay_selector = RelaySelector::from_list(config, RELAYS.clone());
+    for _ in 0..100 {
+        let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
+        let tunnel_type = tunnel_type(&get_relay(relay));
+        assert_eq!(tunnel_type, TunnelType::Wireguard);
+    }
 }
-*/
+
+/// Handle bridge setting when falling back on OpenVPN
+#[test]
+fn openvpn_handle_bridge_settings() {
+    // First, construct a query to choose an OpenVPN relay to talk to over UDP.
+    let mut query = openvpn::new().transport_protocol(UDP).build();
+
+    let config = {
+        let mut config = SelectorConfig::default();
+        // Turn on bridge state. Bridge state implies TCP.
+        config.bridge_state = BridgeState::On;
+        config
+    };
+    let relay_selector = RelaySelector::from_list(config, RELAYS.clone());
+    let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
+    // Assert that the resulting relay uses UDP.
+    match relay {
+        GetRelay::OpenVpn { relay, .. } => {
+            assert_eq!(relay.endpoint.unwrap_openvpn().protocol, UDP);
+        }
+        wrong_relay => panic!(
+            "Relay selector should have picked an OpenVPN relay, instead chose {wrong_relay:?}"
+        ),
+    }
+    // Tweaking the query just slightly to try to enable bridge mode, while sill using UDP,
+    // should fail.
+    // TODO: Eye-sore.
+    query.openvpn_constraints.bridge_settings =
+        Constraint::Only(BridgeSettingsFilter::Normal(BridgeConstraints {
+            location: Constraint::Any,
+            providers: Constraint::Any,
+            ownership: Constraint::Any,
+        }));
+    let relay = relay_selector.get_relay_by_query(query.clone());
+    assert!(relay.is_err());
+
+    // Correcting the query to use TCP, the relay selector should yield a valid relay + bridge
+    // TODO: Eye-sore.
+    query.openvpn_constraints.port = Constraint::Only(TransportPort {
+        protocol: TCP,
+        port: Constraint::Any,
+    });
+    let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
+    match relay {
+        GetRelay::OpenVpn { relay, bridge } => {
+            assert!(bridge.is_some());
+            assert_eq!(relay.endpoint.unwrap_openvpn().protocol, TCP);
+        }
+        wrong_relay => panic!(
+            "Relay selector should have picked an OpenVPN relay, instead chose {wrong_relay:?}"
+        ),
+    };
+}
