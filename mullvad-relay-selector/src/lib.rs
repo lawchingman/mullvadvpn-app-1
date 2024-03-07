@@ -9,8 +9,4 @@ mod relay_selector;
 // Re-exports
 pub use error::Error;
 pub use relay_selector::RelaySelector;
-// TODO(markus): Obsolete?
-pub use relay_selector::{
-    GetRelay, NormalSelectedRelay, SelectedBridge, SelectedObfuscator, SelectedRelay,
-    SelectorConfig,
-};
+pub use relay_selector::{GetRelay, SelectedBridge, SelectedObfuscator, SelectorConfig};

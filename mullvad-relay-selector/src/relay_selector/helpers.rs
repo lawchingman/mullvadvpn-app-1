@@ -1,23 +1,30 @@
 //! This module contains various helper functions for the relay selector implementation.
 
-// TODO(markus): Put all functions which does not use the RelaySelector/`self` paramter here.
-
 use std::net::SocketAddr;
 
 use mullvad_types::{
     constraints::Constraint,
     endpoint::MullvadWireguardEndpoint,
     relay_constraints::{BridgeSettingsFilter, Udp2TcpObfuscationSettings},
-    relay_list::{BridgeEndpointData, Relay, RelayEndpointData, WireguardEndpointData},
+    relay_list::{BridgeEndpointData, Relay, RelayEndpointData},
 };
-use rand::{seq::SliceRandom, thread_rng, Rng};
+use rand::{
+    seq::{IteratorRandom, SliceRandom},
+    thread_rng, Rng,
+};
 use talpid_types::net::{obfuscation::ObfuscatorConfig, proxy::CustomProxy};
 
-use super::matcher::WireguardMatcher;
-use crate::{
-    constants::{WIREGUARD_EXIT_IP_VERSION, WIREGUARD_EXIT_PORT},
-    SelectedObfuscator,
-};
+use crate::SelectedObfuscator;
+
+/// Pick a random element out of `from`, excluding the element `exclude` from the selection.
+pub fn random<'a, A: PartialEq>(
+    from: impl IntoIterator<Item = &'a A>,
+    exclude: &A,
+) -> Option<&'a A> {
+    from.into_iter()
+        .filter(|&a| a != exclude)
+        .choose(&mut thread_rng())
+}
 
 /// Picks a relay using [Self::pick_random_relay_fn], using the `weight` member of each relay
 /// as the weight function.
@@ -54,7 +61,6 @@ pub fn pick_random_relay_fn<RelayType>(
 }
 
 /// Picks a random bridge from a relay.
-/// TODO(markus): Rip out state/RNG?
 pub fn pick_random_bridge(data: &BridgeEndpointData, relay: &Relay) -> Option<CustomProxy> {
     if relay.endpoint_data != RelayEndpointData::Bridge {
         return None;
@@ -71,13 +77,6 @@ pub fn pick_random_bridge(data: &BridgeEndpointData, relay: &Relay) -> Option<Cu
     }
     shadowsocks_endpoint
         .map(|endpoint_data| endpoint_data.to_proxy_settings(relay.ipv4_addr_in.into()))
-}
-
-pub fn wireguard_exit_matcher(wg: WireguardEndpointData) -> WireguardMatcher {
-    let mut tunnel = WireguardMatcher::from_endpoint(wg);
-    tunnel.ip_version = WIREGUARD_EXIT_IP_VERSION;
-    tunnel.port = WIREGUARD_EXIT_PORT;
-    tunnel
 }
 
 pub fn get_udp2tcp_obfuscator(
@@ -111,6 +110,8 @@ pub fn get_udp2tcp_obfuscator_port(
     }
 }
 
+/// TODO(markus): Implement this on [`BridgeSettingsFilter`] instead.
+///
 /// If `bridge_constraints` is `Any`, bridges should not be used due to latency concerns.
 ///
 /// If `bridge_constraints` is `Only(settings)`, then `settings` will be used to decide if bridges

@@ -1,17 +1,12 @@
-//! TODO(markus): Remove old test code/snippets/comments
 //! Tests for verifying that the relay selector works as expected.
-#![allow(unused)]
 
 use mullvad_types::{
     constraints::Constraint,
-    custom_list::CustomListsSettings,
-    endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
+    endpoint::MullvadEndpoint,
     relay_constraints::{
         builder::{any, openvpn, wireguard},
         BridgeConstraints, BridgeSettingsFilter, BridgeState, GeographicLocationConstraint,
-        LocationConstraint, ObfuscationSettings, OpenVpnConstraints, OpenVpnConstraintsFilter,
-        Ownership, Providers, RelayConstraints, RelayConstraintsFilter, RelaySettings,
-        SelectedObfuscation, TransportPort, WireguardConstraints,
+        OpenVpnConstraintsFilter, Ownership, Providers, SelectedObfuscation, TransportPort,
     },
     relay_list::{
         BridgeEndpointData, OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData,
@@ -27,15 +22,11 @@ use talpid_types::net::{
 
 use crate::{
     error::Error,
-    relay_selector::{
-        helpers::{self, should_use_bridge},
-        matcher::OpenVpnMatcher,
-    },
-    relay_selector::{NormalSelectedRelay, RelaySelector, SelectedRelay, SelectorConfig},
+    relay_selector::{RelaySelector, SelectorConfig},
     GetRelay,
 };
 
-use super::{SelectedObfuscator, RETRY_ORDER};
+use super::{helpers, RETRY_ORDER};
 
 static RELAYS: Lazy<RelayList> = Lazy::new(|| RelayList {
     etag: None,
@@ -178,29 +169,22 @@ const UDP: TransportProtocol = TransportProtocol::Udp;
 const TCP: TransportProtocol = TransportProtocol::Tcp;
 
 // Helper functions
-fn get_relay(get_result: GetRelay) -> Relay {
-    unwrap_relay_selector_result(get_result).exit_relay
-}
-
-fn unwrap_relay_selector_result(get_result: GetRelay) -> NormalSelectedRelay {
+fn unwrap_relay(get_result: GetRelay) -> Relay {
     match get_result {
-        GetRelay::Wireguard {
-            relay,
-            entry,
-            obfuscator,
-        } => relay,
-        GetRelay::OpenVpn { relay, bridge } => relay,
+        GetRelay::Wireguard { exit, .. } => exit,
+        GetRelay::OpenVpn { exit, .. } => exit,
         GetRelay::Custom(custom) => {
             panic!("Can not extract regular relay from custom relay: {custom}")
         }
     }
 }
 
-fn extract_relay(relay: SelectedRelay) -> Relay {
-    match relay {
-        SelectedRelay::Normal(relay) => relay.exit_relay,
-        SelectedRelay::Custom(custom) => {
-            panic!("Can not extract regular relay from custom relay: {custom}")
+fn unwrap_endpoint(get_result: GetRelay) -> MullvadEndpoint {
+    match get_result {
+        GetRelay::Wireguard { endpoint, .. } => endpoint,
+        GetRelay::OpenVpn { endpoint, .. } => endpoint,
+        GetRelay::Custom(custom) => {
+            panic!("Can not extract Mullvad endpoint from custom relay: {custom}")
         }
     }
 }
@@ -237,7 +221,7 @@ fn test_retry_order() {
                         format!("Retry attempt {retry_attempt} did not yield any relay")
                     )
                 });
-                let tunnel_type = tunnel_type(&get_relay(relay));
+                let tunnel_type = tunnel_type(&unwrap_relay(relay));
                 assert_eq!(tunnel_type, *expected_tunnel_protocol);
             }
         }
@@ -247,19 +231,17 @@ fn test_retry_order() {
 /// Verify that Wireguard is prefered if the tunnel type is set to auto.
 #[test]
 fn prefer_wireguard_when_auto() {
-    let query = any().build();
-
-    let config = {
-        let mut config = SelectorConfig::default();
-        // Turn on bridge state. This is only relevant when selecting OpenVPN relays, but turning
-        // this configuration option should not prompt the relay selector to prefer OpenVPN.
-        config.bridge_state = BridgeState::On;
-        config
+    // Turn on bridge state. This is only relevant when selecting OpenVPN relays, but turning
+    // this configuration option should not prompt the relay selector to prefer OpenVPN.
+    let config = SelectorConfig {
+        bridge_state: BridgeState::On,
+        ..SelectorConfig::default()
     };
     let relay_selector = RelaySelector::from_list(config, RELAYS.clone());
     for _ in 0..100 {
-        let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
-        let tunnel_type = tunnel_type(&get_relay(relay));
+        let query = any().build();
+        let relay = relay_selector.get_relay_by_query(query).unwrap();
+        let tunnel_type = tunnel_type(&unwrap_relay(relay));
         assert_eq!(tunnel_type, TunnelType::Wireguard);
     }
 }
@@ -277,12 +259,9 @@ fn test_prefer_wireguard_if_location_supports_it() {
         ))
         .build();
 
-    for retry_attempt in 0..RETRY_ORDER.len() {
-        let relay = relay_selector
-            .get_relay_by_query(query.clone())
-            // .get_relay_by_query_and_blah(query.clone(), &RETRY_ORDER, retry_attempt)
-            .unwrap();
-        let tunnel_typ = tunnel_type(&get_relay(relay));
+    for _ in 0..RETRY_ORDER.len() {
+        let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
+        let tunnel_typ = tunnel_type(&unwrap_relay(relay));
         assert_eq!(tunnel_typ, TunnelType::Wireguard);
     }
 }
@@ -300,16 +279,61 @@ fn test_prefer_openvpn_if_location_supports_it() {
         ))
         .build();
 
-    for retry_attempt in 0..RETRY_ORDER.len() {
-        let relay = relay_selector
-            .get_relay_by_query(query.clone())
-            // TODO(markus): To support this properly, the relay selector would have to be able
-            // to query all relays matching a certain location constraint and check which tunnel
-            // types that would be applicable. Doable, but we'll be concerned with this later.
-            // .get_relay_by_query_and_blah(query.clone(), &RETRY_ORDER, retry_attempt)
-            .unwrap();
-        let tunnel_typ = tunnel_type(&get_relay(relay));
+    for _ in 0..RETRY_ORDER.len() {
+        let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
+        let tunnel_typ = tunnel_type(&unwrap_relay(relay));
         assert_eq!(tunnel_typ, TunnelType::OpenVpn);
+    }
+}
+
+/// Assert that the relay selector does *not* return a multihop configuration where the exit and entry relay are
+/// the same, even if the constraints would allow for it. Also verify that the relay selector is smart enough to
+/// pick either the entry or exit relay first depending on which one ends up yielding a valid configuration.
+#[test]
+fn test_wireguard_entry() {
+    let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
+    let specific_hostname = "se10-wireguard";
+    let specific_location = GeographicLocationConstraint::hostname("se", "got", specific_hostname);
+    let general_location = GeographicLocationConstraint::city("se", "got");
+
+    for _ in 0..100 {
+        let query = wireguard::new()
+            .location(general_location.clone())
+            .multihop()
+            .entry(specific_location.clone())
+            .build();
+
+        // The exit relay must not equal the entry relay
+        let relay = relay_selector.get_relay_by_query(query).unwrap();
+        match relay {
+            GetRelay::Wireguard { exit, entry, .. } => {
+                assert_ne!(exit.hostname, entry.unwrap().hostname);
+            }
+            wrong_relay => panic!(
+            "Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"
+        ),
+        }
+    }
+
+    for _ in 0..100 {
+        let query = wireguard::new()
+            .location(specific_location.clone())
+            .multihop()
+            .entry(general_location.clone())
+            .build();
+
+        let relay = relay_selector.get_relay_by_query(query).unwrap();
+        match relay {
+            GetRelay::Wireguard { exit, entry, .. } => {
+                let entry = entry.unwrap();
+                assert_ne!(exit.hostname, entry.hostname);
+                assert_ne!(exit.ipv4_addr_in, entry.ipv4_addr_in);
+                assert_eq!(exit.hostname, specific_hostname)
+            }
+            wrong_relay => panic!(
+            "Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"
+        ),
+        }
     }
 }
 
@@ -349,62 +373,6 @@ fn test_wireguard_entry_hostname_collision() {
     assert!(relay_selector
         .get_relay_by_query(valid_multihop_query)
         .is_ok())
-}
-
-/// Assert that the relay selector does *not* return a multihop configuration where the exit and entry relay are
-/// the same, even if the constraints would allow for it. Also verify that the relay selector is smart enough to
-/// pick either the entry or exit relay first depending on which one ends up yielding a valid configuration.
-///
-/// TODO: Maybe this test should test `get_wireguard_multihop_endpoint`?
-/// TODO: Repeat this 100 times.
-#[test]
-fn test_wireguard_entry() {
-    let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
-    let specific_hostname = "se10-wireguard";
-    let specific_location = GeographicLocationConstraint::hostname("se", "got", specific_hostname);
-    let general_location = GeographicLocationConstraint::city("se", "got");
-
-    let query = wireguard::new()
-        .location(general_location.clone())
-        .multihop()
-        .entry(specific_location.clone())
-        .build();
-
-    // The exit relay must not equal the entry relay
-    // TODO(markus): This will currently fail because we do not follow this algorithm when
-    // selecting entry+exit relays:
-    //
-    //      (exit <- get_relay, entry <- get_relay(exclude: exit)) <|> (entry <- get_relay, exit <- get_relay(exclude: entry))
-    //
-    // This remains to be implemented properly. Until then, this test will be flaky.
-    let relay = relay_selector.get_relay_by_query(query).unwrap();
-    match relay {
-        GetRelay::Wireguard { relay, entry, .. } => {
-            assert_ne!(relay.exit_relay.hostname, entry.unwrap().hostname);
-        }
-        wrong_relay => panic!(
-            "Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"
-        ),
-    }
-
-    let query = wireguard::new()
-        .location(specific_location)
-        .multihop()
-        .entry(general_location)
-        .build();
-
-    let relay = relay_selector.get_relay_by_query(query).unwrap();
-    match relay {
-        GetRelay::Wireguard { relay, entry, .. } => {
-            let entry = entry.unwrap();
-            assert_ne!(relay.exit_relay.hostname, entry.hostname);
-            assert_ne!(relay.exit_relay.ipv4_addr_in, entry.ipv4_addr_in);
-            assert_eq!(relay.exit_relay.hostname, specific_hostname)
-        }
-        wrong_relay => panic!(
-            "Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"
-        ),
-    }
 }
 
 /// Test that the relay selector:
@@ -466,15 +434,15 @@ fn test_openvpn_constraints() {
         };
 
     for (query, should_match) in constraint_combinations.into_iter() {
-        for retry_attempt in 0..100 {
+        for _ in 0..100 {
             let relay: Result<_, Error> = relay_selector.get_relay_by_query(query.clone());
             if !should_match {
                 relay.expect_err("Unexpected relay");
             } else {
                 match relay.expect("Expected to find a relay") {
-                    GetRelay::OpenVpn { relay, .. } =>  {
-                        assert!(matches!(relay.endpoint, MullvadEndpoint::OpenVpn(_)));
-                        matches_constraints(relay.endpoint.to_endpoint(), &query.openvpn_constraints);
+                    GetRelay::OpenVpn { endpoint, .. } =>  {
+                        assert!(matches!(endpoint, MullvadEndpoint::OpenVpn(_)));
+                        matches_constraints(endpoint.to_endpoint(), &query.openvpn_constraints);
                     },
                     wrong_relay => panic!("Relay selector should have picked an OpenVPN relay, instead chose {wrong_relay:?}")
                 };
@@ -488,7 +456,7 @@ fn test_openvpn_constraints() {
 fn test_selecting_wireguard_location_will_consider_multihop() {
     let relay_selector = RelaySelector::from_list(SelectorConfig::default(), RELAYS.clone());
 
-    for retry_attempt in 0..100 {
+    for _ in 0..100 {
         let query = wireguard::new().multihop().build();
         let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
         match relay {
@@ -511,8 +479,10 @@ fn test_selecting_any_relay_will_consider_multihop() {
     for _ in 0..100 {
         let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
         match relay {
-            GetRelay::Wireguard { relay, entry, .. } => {
-                assert!(matches!(relay.endpoint, MullvadEndpoint::Wireguard(_)) && entry.is_some());
+            GetRelay::Wireguard {
+                endpoint, entry, ..
+            } => {
+                assert!(matches!(endpoint, MullvadEndpoint::Wireguard(_)) && entry.is_some());
             }
             wrong_relay => panic!(
             "Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"
@@ -532,9 +502,7 @@ fn test_selecting_wireguard_endpoint_with_udp2tcp_obfuscation() {
     let relay = relay_selector.get_relay_by_query(query).unwrap();
     match relay {
         GetRelay::Wireguard {
-            relay,
-            entry,
-            obfuscator,
+            entry, obfuscator, ..
         } => {
             assert!(entry.is_none());
             assert!(obfuscator.is_some_and(|obfuscator| matches!(
@@ -564,14 +532,15 @@ fn test_selecting_wireguard_endpoint_with_auto_obfuscation() {
         let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
         match relay {
             GetRelay::Wireguard {
-                relay,
-                entry,
+                endpoint,
+                exit,
                 obfuscator,
+                ..
             } => {
                 assert!(obfuscator.is_none());
                 // Seems redundant, but ok.
-                assert_eq!(tunnel_type(&relay.exit_relay), TunnelType::Wireguard);
-                assert!(matches!(relay.endpoint, MullvadEndpoint::Wireguard { .. }));
+                assert_eq!(tunnel_type(&exit), TunnelType::Wireguard);
+                assert!(matches!(endpoint, MullvadEndpoint::Wireguard { .. }));
             }
             wrong_relay => panic!(
             "Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"
@@ -589,13 +558,11 @@ fn test_selected_wireguard_endpoints_use_correct_port_ranges() {
     // Note that we do *not* specify any port here!
     let query = wireguard::new().udp2tcp().build();
 
-    for attempt in 0..1000 {
+    for _ in 0..1000 {
         let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
         match relay {
             GetRelay::Wireguard {
-                relay,
-                entry,
-                obfuscator,
+                entry, obfuscator, ..
             } => {
                 assert!(entry.is_none());
                 let Some(obfuscator) = obfuscator else {
@@ -623,7 +590,7 @@ fn test_ownership() {
         let query = any().ownership(Ownership::MullvadOwned).build();
         let relay = relay_selector.get_relay_by_query(query).unwrap();
         // Check that the relay is owned by Mullvad.
-        assert!(get_relay(relay).owned);
+        assert!(unwrap_relay(relay).owned);
     }
 
     for _ in 0..100 {
@@ -631,7 +598,7 @@ fn test_ownership() {
         let query = any().ownership(Ownership::Rented).build();
         let relay = relay_selector.get_relay_by_query(query).unwrap();
         // Check that the relay is rented.
-        assert!(!get_relay(relay).owned);
+        assert!(!unwrap_relay(relay).owned);
     }
 }
 
@@ -652,8 +619,8 @@ fn test_load_balancing() {
             // Execute the query
             .map(|query| relay_selector.get_relay_by_query(query).unwrap())
             // Perform some plumbing ..
-            .map(unwrap_relay_selector_result)
-            .map(|relay| relay.endpoint.to_endpoint().address)
+            .map(unwrap_endpoint)
+            .map(|endpoint| endpoint.to_endpoint().address)
             // Extract the selected relay's port + IP address
             .map(|endpoint| (endpoint.port(), endpoint.ip()))
             .unzip();
@@ -684,15 +651,11 @@ fn test_providers() {
         let relay = relay_selector.get_relay_by_query(query).unwrap();
 
         match relay {
-            GetRelay::Wireguard {
-                relay,
-                entry,
-                obfuscator,
-            } => {
+            GetRelay::Wireguard { exit, .. } => {
                 assert!(
-                    EXPECTED_PROVIDERS.contains(&relay.exit_relay.provider.as_str()),
+                    EXPECTED_PROVIDERS.contains(&exit.provider.as_str()),
                     "cannot find provider {provider} in {EXPECTED_PROVIDERS:?}",
-                    provider = relay.exit_relay.provider
+                    provider = exit.provider
                 )
             }
             wrong_relay => panic!(
@@ -713,13 +676,6 @@ fn test_openvpn_auto_bridge() {
         // This attempt should use a bridge
         openvpn::new().bridge().build(),
     ];
-    let should_use_bridge = |query: &RelayConstraintsFilter| {
-        // TODO: This is really leaky ..
-        matches!(
-            query.openvpn_constraints.bridge_settings,
-            Constraint::Only(BridgeSettingsFilter::Normal(_))
-        )
-    };
 
     for (retry_attempt, query) in retry_order
         .iter()
@@ -728,11 +684,11 @@ fn test_openvpn_auto_bridge() {
         .take(100 * retry_order.len())
     {
         let relay = relay_selector
-            .get_relay_by_query_and_blah(&retry_order, retry_attempt)
+            .get_relay_with_order(&retry_order, retry_attempt)
             .unwrap();
         match relay {
             GetRelay::OpenVpn { bridge, .. } => {
-                if should_use_bridge(query) {
+                if helpers::should_use_bridge(&query.openvpn_constraints.bridge_settings) {
                     assert!(bridge.is_some())
                 } else {
                     assert!(bridge.is_none())
@@ -833,19 +789,10 @@ fn test_include_in_country() {
     relay_list.countries[0].cities[0].relays[0].include_in_country = true;
     let expected_hostname = relay_list.countries[0].cities[0].relays[0].hostname.clone();
     let relay_selector = RelaySelector::from_list(SelectorConfig::default(), relay_list);
-    let relay = relay_selector.get_relay(0).expect("expected match").relay();
+    let relay = unwrap_relay(relay_selector.get_relay(0).expect("expected match"));
 
     assert!(
-        matches!(
-            relay,
-            SelectedRelay::Normal(NormalSelectedRelay {
-                exit_relay: Relay {
-                    ref hostname,
-                    ..
-                },
-                ..
-            }) if hostname == &expected_hostname,
-        ),
+        matches!(relay, Relay { ref hostname, .. } if hostname == &expected_hostname),
         "found {relay:?}, expected {expected_hostname:?}",
     )
 }
@@ -857,15 +804,14 @@ fn ignore_bridge_state_when_wireguard_is_used() {
     let location = GeographicLocationConstraint::hostname("se", "got", "se10-wireguard");
     // .. while the query otherwise does not.
     let query = any().location(location).build();
-    let config = {
-        let mut config = SelectorConfig::default();
-        config.bridge_state = BridgeState::On;
-        config
+    let config = SelectorConfig {
+        bridge_state: BridgeState::On,
+        ..SelectorConfig::default()
     };
     let relay_selector = RelaySelector::from_list(config, RELAYS.clone());
     for _ in 0..100 {
         let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
-        let tunnel_type = tunnel_type(&get_relay(relay));
+        let tunnel_type = tunnel_type(&unwrap_relay(relay));
         assert_eq!(tunnel_type, TunnelType::Wireguard);
     }
 }
@@ -876,18 +822,16 @@ fn openvpn_handle_bridge_settings() {
     // First, construct a query to choose an OpenVPN relay to talk to over UDP.
     let mut query = openvpn::new().transport_protocol(UDP).build();
 
-    let config = {
-        let mut config = SelectorConfig::default();
-        // Turn on bridge state. Bridge state implies TCP.
-        config.bridge_state = BridgeState::On;
-        config
+    let config = SelectorConfig {
+        bridge_state: BridgeState::On,
+        ..SelectorConfig::default()
     };
     let relay_selector = RelaySelector::from_list(config, RELAYS.clone());
     let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
     // Assert that the resulting relay uses UDP.
     match relay {
-        GetRelay::OpenVpn { relay, .. } => {
-            assert_eq!(relay.endpoint.unwrap_openvpn().protocol, UDP);
+        GetRelay::OpenVpn { endpoint, .. } => {
+            assert_eq!(endpoint.unwrap_openvpn().protocol, UDP);
         }
         wrong_relay => panic!(
             "Relay selector should have picked an OpenVPN relay, instead chose {wrong_relay:?}"
@@ -895,27 +839,23 @@ fn openvpn_handle_bridge_settings() {
     }
     // Tweaking the query just slightly to try to enable bridge mode, while sill using UDP,
     // should fail.
-    // TODO: Eye-sore.
     query.openvpn_constraints.bridge_settings =
-        Constraint::Only(BridgeSettingsFilter::Normal(BridgeConstraints {
-            location: Constraint::Any,
-            providers: Constraint::Any,
-            ownership: Constraint::Any,
-        }));
+        Constraint::Only(BridgeSettingsFilter::Normal(BridgeConstraints::default()));
     let relay = relay_selector.get_relay_by_query(query.clone());
     assert!(relay.is_err());
 
     // Correcting the query to use TCP, the relay selector should yield a valid relay + bridge
-    // TODO: Eye-sore.
     query.openvpn_constraints.port = Constraint::Only(TransportPort {
         protocol: TCP,
-        port: Constraint::Any,
+        port: Constraint::default(),
     });
     let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
     match relay {
-        GetRelay::OpenVpn { relay, bridge } => {
+        GetRelay::OpenVpn {
+            endpoint, bridge, ..
+        } => {
             assert!(bridge.is_some());
-            assert_eq!(relay.endpoint.unwrap_openvpn().protocol, TCP);
+            assert_eq!(endpoint.unwrap_openvpn().protocol, TCP);
         }
         wrong_relay => panic!(
             "Relay selector should have picked an OpenVPN relay, instead chose {wrong_relay:?}"

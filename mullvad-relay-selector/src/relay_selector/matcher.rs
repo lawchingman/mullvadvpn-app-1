@@ -1,4 +1,4 @@
-//! TODO(markus): Document
+//! This module is responsible for filtering the whole relay list based on queries.
 use mullvad_types::{
     constraints::{Constraint, Match},
     custom_list::CustomListsSettings,
@@ -12,8 +12,6 @@ use mullvad_types::{
     },
 };
 use talpid_types::net::{IpVersion, TransportProtocol, TunnelType};
-
-use super::helpers;
 
 #[derive(Clone)]
 pub struct RelayMatcher<T: EndpointMatcher> {
@@ -29,10 +27,8 @@ pub struct RelayMatcher<T: EndpointMatcher> {
 }
 
 impl RelayMatcher<AnyTunnelMatcher> {
-    // TODO: Use constraint filter instead ..
     pub fn new(
         constraints: RelayConstraintsFilter,
-        //c onstraints: RelayConstraints,
         openvpn_data: OpenVpnEndpointData,
         brige_state: BridgeState,
         wireguard_data: WireguardEndpointData,
@@ -58,17 +54,9 @@ impl RelayMatcher<AnyTunnelMatcher> {
     }
 }
 
-impl RelayMatcher<WireguardMatcher> {
-    pub fn set_peer(&mut self, peer: Relay) {
-        self.endpoint_matcher.peer = Some(peer);
-    }
-}
-
 impl<T: EndpointMatcher> RelayMatcher<T> {
     /// Filter a list of relays and their endpoints based on constraints.
     /// Only relays with (and including) matching endpoints are returned.
-    // TODO(markus): Should this function simply return an iterator?
-    // TODO(markus): Turn this into a function which can simply be passed to `iter.filter`
     pub fn filter_matching_relay_list<'a, R: Iterator<Item = &'a Relay> + Clone>(
         &self,
         relays: R,
@@ -108,14 +96,11 @@ pub trait EndpointMatcher: Clone {
     fn is_matching_relay(&self, relay: &Relay) -> bool;
 }
 
-impl EndpointMatcher for OpenVpnMatcher {
-    fn is_matching_relay(&self, relay: &Relay) -> bool {
-        filter_openvpn(relay) && openvpn_filter_on_port(self.constraints.port, &self.data)
-    }
-}
 #[derive(Clone)]
 pub struct AnyTunnelMatcher {
+    /// The [`WireguardMatcher`] to be used in case we should filter Wireguard relays.
     pub wireguard: WireguardMatcher,
+    /// The [`OpenVpnMatcher`] to be used in case we should filter OpenVPN relays.
     pub openvpn: OpenVpnMatcher,
     /// If the user hasn't specified a tunnel protocol the relay selector might
     /// still prefer a specific tunnel protocol, which is why the tunnel type
@@ -137,19 +122,15 @@ impl EndpointMatcher for AnyTunnelMatcher {
 
 #[derive(Default, Clone)]
 pub struct WireguardMatcher {
-    /// The peer is an already selected peer relay to be used with multihop.
-    /// It's stored here so we can exclude it from further selections being made.
-    pub peer: Option<Relay>,
     pub port: Constraint<u16>,
     pub ip_version: Constraint<IpVersion>,
-
     pub data: WireguardEndpointData,
 }
 
+/// Filter suitable Wireguard relays from the relay list
 impl WireguardMatcher {
     pub fn new(constraints: WireguardConstraintsFilter, data: WireguardEndpointData) -> Self {
         Self {
-            peer: None,
             port: constraints.port,
             ip_version: constraints.ip_version,
             data,
@@ -157,10 +138,8 @@ impl WireguardMatcher {
     }
 
     pub fn new_matcher(
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
         constraints: RelayConstraintsFilter,
         data: WireguardEndpointData,
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
         custom_lists: &CustomListsSettings,
     ) -> RelayMatcher<Self> {
         RelayMatcher {
@@ -173,63 +152,15 @@ impl WireguardMatcher {
             endpoint_matcher: WireguardMatcher::new(constraints.wireguard_constraints, data),
         }
     }
-
-    /// Special cased version of [`WireguardMatcher::new_matcher`] where
-    /// `wireguard_constraints.entry_location` is set as the entry location
-    /// constraint.
-    ///
-    /// TODO(markus): Can probably be removed if location is lifted out of [`RelayMatcher`].
-    pub fn new_entry_matcher(
-        constraints: RelayConstraintsFilter,
-        data: WireguardEndpointData,
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
-        custom_lists: &CustomListsSettings,
-    ) -> RelayMatcher<Self> {
-        let locations = ResolvedLocationConstraint::from_constraint(
-            constraints.wireguard_constraints.entry_location.clone(),
-            custom_lists,
-        );
-
-        RelayMatcher {
-            locations,
-            providers: constraints.providers,
-            ownership: constraints.ownership,
-            endpoint_matcher: WireguardMatcher::new(constraints.wireguard_constraints, data),
-        }
-    }
-
-    /// Special cased version of [`WireguardMatcher::new_matcher`] where
-    /// ..
-    ///
-    /// TODO(markus): Can probably be removed if location is lifted out of [`RelayMatcher`].
-    pub fn new_exit_matcher(
-        constraints: RelayConstraintsFilter,
-        data: WireguardEndpointData,
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
-        custom_lists: &CustomListsSettings,
-    ) -> RelayMatcher<Self> {
-        let mut matcher = Self::new_matcher(constraints, data.clone(), custom_lists);
-        matcher.endpoint_matcher = helpers::wireguard_exit_matcher(data);
-        matcher
-    }
-
-    pub fn from_endpoint(data: WireguardEndpointData) -> Self {
-        Self {
-            data,
-            ..Default::default()
-        }
-    }
 }
 
 impl EndpointMatcher for WireguardMatcher {
     fn is_matching_relay(&self, relay: &Relay) -> bool {
-        match &self.peer {
-            Some(peer) => filter_wireguard(relay) && are_distinct_relays(peer, relay),
-            None => filter_wireguard(relay),
-        }
+        filter_wireguard(relay)
     }
 }
 
+/// Filter suitable OpenVPN relays from the relay list
 #[derive(Debug, Clone)]
 pub struct OpenVpnMatcher {
     pub constraints: OpenVpnConstraintsFilter,
@@ -253,14 +184,18 @@ impl OpenVpnMatcher {
     }
 }
 
+impl EndpointMatcher for OpenVpnMatcher {
+    fn is_matching_relay(&self, relay: &Relay) -> bool {
+        filter_openvpn(relay) && openvpn_filter_on_port(self.constraints.port, &self.data)
+    }
+}
+
 #[derive(Clone)]
 pub struct BridgeMatcher;
 
 impl BridgeMatcher {
     pub fn new_matcher(
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
         relay_constraints: InternalBridgeConstraints,
-        // TODO(markus): Might be able to remove custom lists when geo location stuff is removed from `RelayMatcher`
         custom_lists: &CustomListsSettings,
     ) -> RelayMatcher<Self> {
         RelayMatcher {
@@ -339,12 +274,4 @@ fn openvpn_filter_on_port(port: Constraint<TransportPort>, endpoint: &OpenVpnEnd
             .filter(|endpoint| endpoint.protocol == transport_port.protocol)
             .any(|port| compatible_port(transport_port, port)),
     }
-}
-
-// --- Wireguard specific filter ---
-
-/// Returns true if two relays are distinct from each other.
-/// Returns false if they share the same hostname.
-fn are_distinct_relays(peer: &Relay, relay: &Relay) -> bool {
-    peer.hostname != relay.hostname
 }

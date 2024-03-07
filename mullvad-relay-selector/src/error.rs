@@ -1,4 +1,4 @@
-//! TODO(markus): Document this
+//! Definition of relay selector errors
 
 use mullvad_types::relay_constraints::MissingCustomBridgeSettings;
 

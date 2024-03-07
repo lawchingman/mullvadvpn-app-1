@@ -820,7 +820,9 @@ impl Intersection for OpenVpnConstraintsFilter {
         let bridge_settings = {
             match (self.bridge_settings, other.bridge_settings) {
                 // Recursive case
-                (Constraint::Only(left), Constraint::Only(right)) => Constraint::Only(left.intersection(right)?),
+                (Constraint::Only(left), Constraint::Only(right)) => {
+                    Constraint::Only(left.intersection(right)?)
+                }
                 (left, right) => left.intersection(right)?,
             }
         };

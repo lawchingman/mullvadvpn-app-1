@@ -153,12 +153,11 @@ impl InnerParametersGenerator {
 
         match selected_relay {
             GetRelay::Wireguard {
-                relay,
+                endpoint,
+                exit,
                 entry,
                 obfuscator,
             } => {
-                let exit = relay.exit_relay;
-                let endpoint = relay.endpoint;
                 let (obfuscator_relay, obfuscator_config) = match obfuscator {
                     Some(obfuscator) => (Some(obfuscator.relay), Some(obfuscator.config)),
                     None => (None, None),
@@ -177,16 +176,18 @@ impl InnerParametersGenerator {
                 ))
             }
 
-            GetRelay::OpenVpn { relay, bridge } => {
-                let exit = relay.exit_relay;
-                let endpoint = relay.endpoint;
+            GetRelay::OpenVpn {
+                endpoint,
+                exit,
+                bridge,
+            } => {
                 let bridge_settings = match bridge {
-                    Some(SelectedBridge::Normal { ref settings, .. } ) => Some(settings.clone()),
+                    Some(SelectedBridge::Normal { ref settings, .. }) => Some(settings.clone()),
                     Some(SelectedBridge::Custom(ref settings)) => Some(settings.clone()),
                     None => None,
                 };
                 let bridge_relay = match bridge {
-                    Some(SelectedBridge::Normal { relay, .. } ) => Some(relay),
+                    Some(SelectedBridge::Normal { relay, .. }) => Some(relay),
                     _ => None,
                 };
 
