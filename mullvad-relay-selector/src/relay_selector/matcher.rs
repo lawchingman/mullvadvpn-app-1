@@ -1,30 +1,17 @@
-// TODO(markus): Remove
-#![allow(dead_code, unused)]
+//! TODO(markus): Document
 use mullvad_types::{
     constraints::{Constraint, Match},
     custom_list::CustomListsSettings,
-    endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
-    location::Location,
     relay_constraints::{
-        BridgeState, InternalBridgeConstraints, LocationConstraint, OpenVpnConstraints,
-        OpenVpnConstraintsFilter, Ownership, Providers, RelayConstraints, RelayConstraintsFilter,
-        ResolvedLocationConstraint, TransportPort, WireguardConstraints,
+        BridgeState, InternalBridgeConstraints, OpenVpnConstraintsFilter, Ownership, Providers,
+        RelayConstraintsFilter, ResolvedLocationConstraint, TransportPort,
         WireguardConstraintsFilter,
     },
     relay_list::{
         OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData, WireguardEndpointData,
     },
 };
-use rand::{
-    seq::{IteratorRandom, SliceRandom},
-    Rng,
-};
-use std::net::{IpAddr, SocketAddr};
-use talpid_types::net::{
-    all_of_the_internet, wireguard, Endpoint, IpVersion, TransportProtocol, TunnelType,
-};
-
-use crate::NormalSelectedRelay;
+use talpid_types::net::{IpVersion, TransportProtocol, TunnelType};
 
 use super::helpers;
 
@@ -39,78 +26,6 @@ pub struct RelayMatcher<T: EndpointMatcher> {
     pub ownership: Constraint<Ownership>,
     /// Concrete representation of [`RelayConstraints`] or [`BridgeConstraints`].
     pub endpoint_matcher: T,
-}
-
-/// TODO: Document
-#[derive(Clone, Debug)]
-pub struct RelayDetailer<T: Detailer> {
-    pub detailer: T,
-}
-
-impl<T: Detailer> RelayDetailer<T> {
-    pub const fn new(detailer: T) -> Self {
-        Self { detailer }
-    }
-
-    /// Populate a chosen [`Relay`] with connection details, such that a tunnel can
-    /// be established.
-    pub fn fill_in_the_details(&self, relay: Relay) -> Option<NormalSelectedRelay> {
-        let endpoint_details = match relay.endpoint_data {
-            RelayEndpointData::Openvpn => self.detailer.fill(&relay),
-            RelayEndpointData::Wireguard(_) => self.detailer.fill(&relay),
-            RelayEndpointData::Bridge => None,
-        }?;
-
-        Some(NormalSelectedRelay::new(endpoint_details, relay))
-    }
-}
-
-pub trait Detailer {
-    /// Constructs a MullvadEndpoint for a given Relay using extra data from the relay matcher
-    /// itself.
-    fn fill(&self, relay: &Relay) -> Option<MullvadEndpoint>;
-}
-
-impl Detailer for WireguardMatcher {
-    fn fill(&self, relay: &Relay) -> Option<MullvadEndpoint> {
-        if !self.is_matching_relay(relay) {
-            return None;
-        }
-        self.wg_data_to_endpoint(relay, &self.data)
-    }
-}
-
-impl Detailer for OpenVpnMatcher {
-    fn fill(&self, relay: &Relay) -> Option<MullvadEndpoint> {
-        if !self.is_matching_relay(relay) {
-            return None;
-        }
-
-        self.get_transport_port().map(|endpoint| {
-            MullvadEndpoint::OpenVpn(Endpoint::new(
-                relay.ipv4_addr_in,
-                endpoint.port,
-                endpoint.protocol,
-            ))
-        })
-    }
-}
-
-impl Detailer for AnyTunnelMatcher {
-    fn fill(&self, relay: &Relay) -> Option<MullvadEndpoint> {
-        #[cfg(not(target_os = "android"))]
-        match self.tunnel_type {
-            Constraint::Any => self
-                .openvpn
-                .fill(relay)
-                .or_else(|| self.wireguard.fill(relay)),
-            Constraint::Only(TunnelType::OpenVpn) => self.openvpn.fill(relay),
-            Constraint::Only(TunnelType::Wireguard) => self.wireguard.fill(relay),
-        }
-
-        #[cfg(target_os = "android")]
-        self.wireguard.fill(relay)
-    }
 }
 
 impl RelayMatcher<AnyTunnelMatcher> {
@@ -202,10 +117,9 @@ impl EndpointMatcher for OpenVpnMatcher {
 pub struct AnyTunnelMatcher {
     pub wireguard: WireguardMatcher,
     pub openvpn: OpenVpnMatcher,
-    /// in the case that a user hasn't specified a tunnel protocol, the relay
-    /// selector might still construct preferred constraints that do select a
-    /// specific tunnel protocol, which is why the tunnel type may be specified
-    /// in the `AnyTunnelMatcher`.
+    /// If the user hasn't specified a tunnel protocol the relay selector might
+    /// still prefer a specific tunnel protocol, which is why the tunnel type
+    /// may be specified in the `AnyTunnelMatcher`.
     pub tunnel_type: Constraint<TunnelType>,
 }
 
@@ -305,77 +219,6 @@ impl WireguardMatcher {
             ..Default::default()
         }
     }
-
-    fn wg_data_to_endpoint(
-        &self,
-        relay: &Relay,
-        data: &WireguardEndpointData,
-    ) -> Option<MullvadEndpoint> {
-        let host = self.get_address_for_wireguard_relay(relay)?;
-        let port = self.get_port_for_wireguard_relay(data)?;
-        let peer_config = wireguard::PeerConfig {
-            public_key: relay
-                .endpoint_data
-                .unwrap_wireguard_ref()
-                .public_key
-                .clone(),
-            endpoint: SocketAddr::new(host, port),
-            allowed_ips: all_of_the_internet(),
-            psk: None,
-        };
-        Some(MullvadEndpoint::Wireguard(MullvadWireguardEndpoint {
-            peer: peer_config,
-            exit_peer: None,
-            ipv4_gateway: data.ipv4_gateway,
-            ipv6_gateway: data.ipv6_gateway,
-        }))
-    }
-
-    fn get_address_for_wireguard_relay(&self, relay: &Relay) -> Option<IpAddr> {
-        match self.ip_version {
-            Constraint::Any | Constraint::Only(IpVersion::V4) => Some(relay.ipv4_addr_in.into()),
-            Constraint::Only(IpVersion::V6) => relay.ipv6_addr_in.map(|addr| addr.into()),
-        }
-    }
-
-    // TODO(markus): Can we isolate randomness?
-    fn get_port_for_wireguard_relay(&self, data: &WireguardEndpointData) -> Option<u16> {
-        match self.port {
-            Constraint::Any => {
-                let get_port_amount =
-                    |range: &(u16, u16)| -> u64 { (1 + range.1 - range.0) as u64 };
-                let port_amount: u64 = data.port_ranges.iter().map(get_port_amount).sum();
-
-                if port_amount < 1 {
-                    return None;
-                }
-
-                // TODO(markus): ???
-                let mut port_index = rand::thread_rng().gen_range(0..port_amount);
-
-                for range in data.port_ranges.iter() {
-                    let ports_in_range = get_port_amount(range);
-                    if port_index < ports_in_range {
-                        return Some(port_index as u16 + range.0);
-                    }
-                    port_index -= ports_in_range;
-                }
-                log::error!("Port selection algorithm is broken!");
-                None
-            }
-            Constraint::Only(port) => {
-                if data
-                    .port_ranges
-                    .iter()
-                    .any(|range| (range.0 <= port && port <= range.1))
-                {
-                    Some(port)
-                } else {
-                    None
-                }
-            }
-        }
-    }
 }
 
 impl EndpointMatcher for WireguardMatcher {
@@ -407,27 +250,6 @@ impl OpenVpnMatcher {
             });
         }
         Self { constraints, data }
-    }
-
-    /// Choose a valid OpenVPN port.
-    fn get_transport_port(&self) -> Option<&OpenVpnEndpoint> {
-        let constraints_port = self.constraints.port;
-        let compatible_port_combo = |endpoint: &&OpenVpnEndpoint| match constraints_port {
-            Constraint::Any => true,
-            Constraint::Only(transport_port) => match transport_port.port {
-                Constraint::Any => transport_port.protocol == endpoint.protocol,
-                Constraint::Only(port) => {
-                    port == endpoint.port && transport_port.protocol == endpoint.protocol
-                }
-            },
-        };
-
-        self.data
-            .ports
-            .iter()
-            .filter(compatible_port_combo)
-            // TODO(markus): ???
-            .choose(&mut rand::thread_rng())
     }
 }
 

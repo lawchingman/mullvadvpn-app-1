@@ -24,6 +24,7 @@
 //
 // X. Remove this TODO-list
 
+mod detailer;
 mod helpers;
 mod matcher;
 #[cfg(test)]
@@ -62,7 +63,7 @@ use talpid_types::{
 use crate::error::Error;
 use crate::parsed_relays::ParsedRelays;
 
-use self::matcher::{AnyTunnelMatcher, RelayDetailer};
+use self::{detailer::RelayDetailer, matcher::AnyTunnelMatcher};
 
 /// [`RETRY_ORDER`] defines an ordered set of relay parameters which the relay selector should prioritize on
 /// successive connection attempts.
