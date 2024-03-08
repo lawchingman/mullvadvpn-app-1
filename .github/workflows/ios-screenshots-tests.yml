@@ -24,31 +24,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Configure cache
-        uses: actions/cache@v3
-        with:
-          path: ios/${{ env.SOURCE_PACKAGES_PATH }}
-          key: ${{ runner.os }}-spm-${{ hashFiles('ios/**/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
-
-      - name: Setup go-lang
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.19.5
-
-      - name: Set up yeetd to workaround XCode being slow in CI
-        run: |
-          wget https://github.com/biscuitehh/yeetd/releases/download/1.0/yeetd-normal.pkg
-          sudo installer -pkg yeetd-normal.pkg -target /
-          yeetd &
-      - name: Configure Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '15.0.1'
-      - name: Configure Rust
-        run: rustup target add aarch64-apple-ios-sim
-
       - name: Configure Xcode project
         run: |
           cp Base.xcconfig.template Base.xcconfig
@@ -60,11 +35,6 @@ jobs:
           cat Screenshots.xcconfig
           printf "$TEST_ACCOUNT" | wc -c
         working-directory: ios/Configurations
-
-      - name: Install xcbeautify
-        run: |
-          brew update
-          brew install xcbeautify
 
       - name: Run screenshot tests
         run: |
