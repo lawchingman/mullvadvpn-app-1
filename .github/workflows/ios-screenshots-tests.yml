@@ -57,6 +57,8 @@ jobs:
           cp Screenshots.xcconfig.template Screenshots.xcconfig
           cp Api.xcconfig.template Api.xcconfig
           sed -i "" "s/MULLVAD_ACCOUNT_TOKEN = /MULLVAD_ACCOUNT_TOKEN = $TEST_ACCOUNT/g" Screenshots.xcconfig
+          cat Screenshots.xcconfig
+          printf "$TEST_ACCOUNT" | wc -c
         working-directory: ios/Configurations
 
       - name: Install xcbeautify
