@@ -16,7 +16,7 @@ jobs:
   test:
     if: github.event.pull_request.merged || github.event_name == 'workflow_dispatch'
     name: Screenshot tests
-    runs-on: macos-13-xlarge
+    runs-on: [self-hosted, macOS, ios-test]
     env:
       SOURCE_PACKAGES_PATH: .spm
       TEST_ACCOUNT: ${{ secrets.IOS_TEST_ACCOUNT_NUMBER }}
