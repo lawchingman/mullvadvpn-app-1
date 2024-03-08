@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use mullvad_types::{
     constraints::Constraint,
     endpoint::MullvadWireguardEndpoint,
-    relay_constraints::{BridgeSettingsFilter, Udp2TcpObfuscationSettings},
+    relay_constraints::Udp2TcpObfuscationSettings,
     relay_list::{BridgeEndpointData, Relay, RelayEndpointData},
 };
 use rand::{
@@ -107,24 +107,5 @@ pub fn get_udp2tcp_obfuscator_port(
         }
         // There are no specific obfuscation settings to take into consideration in this case.
         Constraint::Any | Constraint::Only(_) => udp2tcp_ports.choose(&mut thread_rng()).copied(),
-    }
-}
-
-/// TODO(markus): Implement this on [`BridgeSettingsFilter`] instead.
-///
-/// If `bridge_constraints` is `Any`, bridges should not be used due to latency concerns.
-///
-/// If `bridge_constraints` is `Only(settings)`, then `settings` will be used to decide if bridges
-/// should be used. See [`BridgeSettingsFilter`] for more details, but the algorithm beaks down to
-/// this:
-/// * `BridgeSettingsFilter::Off`: bridges will not be used
-/// * otherwise: bridges should be used
-pub const fn should_use_bridge(bridge_constraints: &Constraint<BridgeSettingsFilter>) -> bool {
-    match bridge_constraints {
-        Constraint::Only(settings) => match settings {
-            BridgeSettingsFilter::Normal(_) | BridgeSettingsFilter::Custom(_) => true,
-            BridgeSettingsFilter::Off | BridgeSettingsFilter::Auto => false,
-        },
-        Constraint::Any => false,
     }
 }

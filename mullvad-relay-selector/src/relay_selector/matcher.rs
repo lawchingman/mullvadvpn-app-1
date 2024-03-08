@@ -3,15 +3,16 @@ use mullvad_types::{
     constraints::{Constraint, Match},
     custom_list::CustomListsSettings,
     relay_constraints::{
-        BridgeState, InternalBridgeConstraints, OpenVpnConstraintsFilter, Ownership, Providers,
-        RelayConstraintsFilter, ResolvedLocationConstraint, TransportPort,
-        WireguardConstraintsFilter,
+        BridgeState, InternalBridgeConstraints, Ownership, Providers, ResolvedLocationConstraint,
+        TransportPort,
     },
     relay_list::{
         OpenVpnEndpoint, OpenVpnEndpointData, Relay, RelayEndpointData, WireguardEndpointData,
     },
 };
 use talpid_types::net::{IpVersion, TransportProtocol, TunnelType};
+
+use super::query::{OpenVpnRelayQuery, RelayQuery, WireguardRelayQuery};
 
 #[derive(Clone)]
 pub struct RelayMatcher<T: EndpointMatcher> {
@@ -28,7 +29,7 @@ pub struct RelayMatcher<T: EndpointMatcher> {
 
 impl RelayMatcher<AnyTunnelMatcher> {
     pub fn new(
-        constraints: RelayConstraintsFilter,
+        constraints: RelayQuery,
         openvpn_data: OpenVpnEndpointData,
         brige_state: BridgeState,
         wireguard_data: WireguardEndpointData,
@@ -129,7 +130,7 @@ pub struct WireguardMatcher {
 
 /// Filter suitable Wireguard relays from the relay list
 impl WireguardMatcher {
-    pub fn new(constraints: WireguardConstraintsFilter, data: WireguardEndpointData) -> Self {
+    pub fn new(constraints: WireguardRelayQuery, data: WireguardEndpointData) -> Self {
         Self {
             port: constraints.port,
             ip_version: constraints.ip_version,
@@ -138,7 +139,7 @@ impl WireguardMatcher {
     }
 
     pub fn new_matcher(
-        constraints: RelayConstraintsFilter,
+        constraints: RelayQuery,
         data: WireguardEndpointData,
         custom_lists: &CustomListsSettings,
     ) -> RelayMatcher<Self> {
@@ -163,13 +164,13 @@ impl EndpointMatcher for WireguardMatcher {
 /// Filter suitable OpenVPN relays from the relay list
 #[derive(Debug, Clone)]
 pub struct OpenVpnMatcher {
-    pub constraints: OpenVpnConstraintsFilter,
+    pub constraints: OpenVpnRelayQuery,
     pub data: OpenVpnEndpointData,
 }
 
 impl OpenVpnMatcher {
     pub fn new(
-        mut constraints: OpenVpnConstraintsFilter,
+        mut constraints: OpenVpnRelayQuery,
         data: OpenVpnEndpointData,
         bridge_state: BridgeState,
     ) -> Self {

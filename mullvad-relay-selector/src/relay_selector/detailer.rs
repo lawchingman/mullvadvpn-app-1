@@ -11,10 +11,12 @@ use ipnetwork::IpNetwork;
 use mullvad_types::{
     constraints::Constraint,
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
-    relay_constraints::{OpenVpnConstraintsFilter, TransportPort, WireguardConstraintsFilter},
+    relay_constraints::TransportPort,
     relay_list::{OpenVpnEndpoint, OpenVpnEndpointData, Relay, WireguardEndpointData},
 };
 use talpid_types::net::{all_of_the_internet, wireguard::PeerConfig, Endpoint, IpVersion};
+
+use super::query::{OpenVpnRelayQuery, WireguardRelayQuery};
 
 /// Given a Wireguad relay (and optionally an entry relay if multihop is used) and the original
 /// query the relay selector used, fill in all connection details to produce a valid
@@ -22,7 +24,7 @@ use talpid_types::net::{all_of_the_internet, wireguard::PeerConfig, Endpoint, Ip
 ///
 /// [`to_endpoint`]: WireguardDetailer::to_endpoint
 pub struct WireguardDetailer {
-    wireguard_constraints: WireguardConstraintsFilter,
+    wireguard_constraints: WireguardRelayQuery,
     exit: Relay,
     entry: Option<Relay>,
     data: WireguardEndpointData,
@@ -34,11 +36,7 @@ impl WireguardDetailer {
     pub const WIREGUARD_EXIT_PORT: u16 = 51820;
 
     /// Create a new [`WireguardDetailer`].
-    pub const fn new(
-        query: WireguardConstraintsFilter,
-        exit: Relay,
-        data: WireguardEndpointData,
-    ) -> Self {
+    pub const fn new(query: WireguardRelayQuery, exit: Relay, data: WireguardEndpointData) -> Self {
         Self {
             wireguard_constraints: query,
             exit,
@@ -67,7 +65,7 @@ impl WireguardDetailer {
     /// # Returns
     /// - A configured Mullvad endpoint for Wireguard, encapsulating either a single-hop or multi-hop connection setup.
     /// - Returns `None` if the desired port is not in a valid port range (see
-    /// [`WireguardConstraintsFilter::port`]) or relay addresses cannot be resolved.
+    /// [`WireguradRelayQuery::port`]) or relay addresses cannot be resolved.
     pub fn to_endpoint(&self) -> Option<MullvadEndpoint> {
         match self.entry {
             None => {
@@ -218,18 +216,14 @@ impl WireguardDetailer {
 ///
 /// [`to_endpoint`]: OpenVpnDetailer::to_endpoint
 pub struct OpenVpnDetailer {
-    openvpn_constraints: OpenVpnConstraintsFilter,
+    openvpn_constraints: OpenVpnRelayQuery,
     exit: Relay,
     data: OpenVpnEndpointData,
 }
 
 impl OpenVpnDetailer {
     /// Create a new [`OpenVpnDetailer`].
-    pub const fn new(
-        query: OpenVpnConstraintsFilter,
-        relay: Relay,
-        data: OpenVpnEndpointData,
-    ) -> Self {
+    pub const fn new(query: OpenVpnRelayQuery, relay: Relay, data: OpenVpnEndpointData) -> Self {
         Self {
             openvpn_constraints: query,
             exit: relay,
