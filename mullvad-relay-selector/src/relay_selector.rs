@@ -107,6 +107,41 @@ pub struct SelectorConfig {
     pub bridge_settings: BridgeSettings,
 }
 
+/// The return type of `get_relay`.
+#[derive(Clone, Debug)]
+pub enum GetRelay {
+    Wireguard {
+        endpoint: MullvadEndpoint,
+        obfuscator: Option<SelectedObfuscator>,
+        inner: WireguardConfig,
+    },
+    OpenVpn {
+        endpoint: MullvadEndpoint,
+        exit: Relay,
+        bridge: Option<SelectedBridge>,
+    },
+    Custom(CustomTunnelEndpoint),
+}
+
+/// TODO(markus): Document
+#[derive(Clone, Debug)]
+pub enum WireguardConfig {
+    Singlehop { exit: Relay },
+    Multihop { exit: Relay, entry: Relay },
+}
+
+#[derive(Clone, Debug)]
+pub enum SelectedBridge {
+    Normal { settings: CustomProxy, relay: Relay },
+    Custom(CustomProxy),
+}
+
+#[derive(Clone, Debug)]
+pub struct SelectedObfuscator {
+    pub config: ObfuscatorConfig,
+    pub relay: Relay,
+}
+
 impl Default for SelectorConfig {
     fn default() -> Self {
         let default_settings = Settings::default();
@@ -191,41 +226,6 @@ impl From<SelectorConfig> for RelayQuery {
             }
         }
     }
-}
-
-/// The return type of `get_relay`.
-#[derive(Clone, Debug)]
-pub enum GetRelay {
-    Wireguard {
-        endpoint: MullvadEndpoint,
-        obfuscator: Option<SelectedObfuscator>,
-        inner: WireguardConfig,
-    },
-    OpenVpn {
-        endpoint: MullvadEndpoint,
-        exit: Relay,
-        bridge: Option<SelectedBridge>,
-    },
-    Custom(CustomTunnelEndpoint),
-}
-
-/// TODO(markus): Document
-#[derive(Clone, Debug)]
-pub enum WireguardConfig {
-    Singlehop { exit: Relay },
-    Multihop { exit: Relay, entry: Relay },
-}
-
-#[derive(Clone, Debug)]
-pub enum SelectedBridge {
-    Normal { settings: CustomProxy, relay: Relay },
-    Custom(CustomProxy),
-}
-
-#[derive(Clone, Debug)]
-pub struct SelectedObfuscator {
-    pub config: ObfuscatorConfig,
-    pub relay: Relay,
 }
 
 impl RelaySelector {
