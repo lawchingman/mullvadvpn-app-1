@@ -1,5 +1,15 @@
 //! Tests for verifying that the relay selector works as expected.
 
+use once_cell::sync::Lazy;
+use std::collections::HashSet;
+use talpid_types::net::{
+    obfuscation::ObfuscatorConfig, wireguard::PublicKey, Endpoint, TransportProtocol, TunnelType,
+};
+
+use mullvad_relay_selector::{
+    query::{builder::RelayQueryBuilder, BridgeQuery, OpenVpnRelayQuery},
+    Error, GetRelay, RelaySelector, SelectorConfig, WireguardConfig, RETRY_ORDER,
+};
 use mullvad_types::{
     constraints::Constraint,
     endpoint::MullvadEndpoint,
@@ -13,22 +23,6 @@ use mullvad_types::{
         WireguardRelayEndpointData,
     },
 };
-use once_cell::sync::Lazy;
-use std::collections::HashSet;
-use talpid_types::net::{
-    obfuscation::ObfuscatorConfig, wireguard::PublicKey, Endpoint, TransportProtocol, TunnelType,
-};
-
-use crate::{
-    error::Error,
-    relay_selector::{
-        query::{builder::RelayQueryBuilder, BridgeQuery, OpenVpnRelayQuery},
-        RelaySelector, SelectorConfig,
-    },
-    GetRelay, WireguardConfig,
-};
-
-use super::RETRY_ORDER;
 
 static RELAYS: Lazy<RelayList> = Lazy::new(|| RelayList {
     etag: None,
