@@ -2,7 +2,7 @@
 //! updated as well.
 
 use crate::{
-    constraints::{Constraint, Intersection, Match, Set},
+    constraints::{Constraint, Match, Set},
     custom_list::{CustomListsSettings, Id},
     location::{CityCode, CountryCode, Hostname},
     relay_list::Relay,
@@ -207,43 +207,6 @@ pub struct RelayConstraints {
     #[cfg_attr(target_os = "android", jnix(skip))]
     pub openvpn_constraints: OpenVpnConstraints,
 }
-
-impl RelayConstraints {
-    /// Create a new [`RelayConstraints`] with no opinionated defaults. This
-    /// should be the const equivalent to [`Default::default`].
-    pub const fn new() -> RelayConstraints {
-        RelayConstraints {
-            location: Constraint::Any,
-            providers: Constraint::Any,
-            ownership: Constraint::Any,
-            tunnel_protocol: Constraint::Any,
-            wireguard_constraints: WireguardConstraints::any(),
-            openvpn_constraints: OpenVpnConstraints::new(),
-        }
-    }
-}
-
-// TODO(markus): Remove
-// impl Intersection for RelayConstraints {
-//     fn intersection(self, other: Self) -> Option<Self>
-//     where
-//         Self: PartialEq,
-//         Self: Sized,
-//     {
-//         Some(RelayConstraints {
-//             location: self.location.intersection(other.location)?,
-//             providers: self.providers.intersection(other.providers)?,
-//             ownership: self.ownership.intersection(other.ownership)?,
-//             tunnel_protocol: self.tunnel_protocol.intersection(other.tunnel_protocol)?,
-//             wireguard_constraints: self
-//                 .wireguard_constraints
-//                 .intersection(other.wireguard_constraints)?,
-//             openvpn_constraints: self
-//                 .openvpn_constraints
-//                 .intersection(other.openvpn_constraints)?,
-//         })
-//     }
-// }
 
 pub struct RelayConstraintsFormatter<'a> {
     pub constraints: &'a RelayConstraints,
@@ -613,28 +576,6 @@ pub struct OpenVpnConstraints {
     pub port: Constraint<TransportPort>,
 }
 
-impl OpenVpnConstraints {
-    /// Create a new [`OpenVpnConstraints`] with no opinionated defaults. This
-    /// should be the const equivalent to [`Default::default`].
-    pub const fn new() -> OpenVpnConstraints {
-        OpenVpnConstraints {
-            port: Constraint::Any,
-        }
-    }
-}
-
-impl Intersection for OpenVpnConstraints {
-    fn intersection(self, other: Self) -> Option<Self>
-    where
-        Self: PartialEq,
-        Self: Sized,
-    {
-        Some(OpenVpnConstraints {
-            port: self.port.intersection(other.port)?,
-        })
-    }
-}
-
 impl fmt::Display for OpenVpnConstraints {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self.port {
@@ -651,7 +592,7 @@ impl fmt::Display for OpenVpnConstraints {
 }
 
 /// [`Constraint`]s applicable to WireGuard relays.
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(target_os = "android", derive(IntoJava))]
 #[cfg_attr(target_os = "android", jnix(package = "net.mullvad.mullvadvpn.model"))]
 #[serde(rename_all = "snake_case", default)]
@@ -664,138 +605,20 @@ pub struct WireguardConstraints {
     #[cfg_attr(target_os = "android", jnix(skip))]
     pub ip_version: Constraint<IpVersion>,
     #[cfg_attr(target_os = "android", jnix(skip))]
-    /// Note that `use_multihop: Constraint::Any` is NOT a valid state for user
-    /// configurations. If set, it will cause a panic when reading the value.
-    /// The state should only be used for retry strategies that are independent
-    /// of the multihop setting.
-    ///
-    /// Please,
-    /// - Set the value via [`WireguardConstraints::use_multihop`]
-    /// - Get the value via [`WireguardConstraints::multihop`]
-    //
-    // TODO: This member should be made private to force callers to use
-    // [`WireguardConstraints::use_multihop`] &
-    // [`WireguardConstraints::multihop`] for setting and getting the
-    // `use_multihop` value. This needs some refactoring work elsewhere, which
-    // is why it is left for a future contributor to work on.
-    #[serde(
-        serialize_with = "multihop::serialize",
-        deserialize_with = "multihop::deserialize"
-    )]
-    pub use_multihop: Constraint<bool>,
+    pub use_multihop: bool,
     #[cfg_attr(target_os = "android", jnix(skip))]
     pub entry_location: Constraint<LocationConstraint>,
 }
 
-mod multihop {
-    //! TODO: The following module can be removed if `use_multihop` is ever
-    //! (re)moved from `WireguardConstraints` and/or changes type definition
-    //! and/or if it okay to change the corresponding representation in the
-    //! daemon settings.
-    use super::*;
-    use serde::{de::Visitor, Deserializer, Serializer};
-    // Implement custom serialization for Constraint<bool>
-    pub fn serialize<S>(value: &Constraint<bool>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match value {
-            Constraint::Any => serializer.serialize_bool(false),
-            Constraint::Only(val) => serializer.serialize_bool(*val),
-        }
-    }
-
-    // Implement custom deserialization for Constraint<bool>
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Constraint<bool>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct ConstraintVisitor;
-
-        impl<'de> Visitor<'de> for ConstraintVisitor {
-            type Value = Constraint<bool>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a boolean")
-            }
-
-            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(Constraint::Only(value))
-            }
-        }
-
-        deserializer.deserialize_bool(ConstraintVisitor)
-    }
-}
-
 impl WireguardConstraints {
-    /// Create a new [`WireguardConstraints`] with no opinionated defaults.
-    ///
-    /// # Note
-    ///
-    /// If you are looking to initialize user [`WireguardConstraints`], please
-    /// use [`WireguardConstraints::default`] instead, as this will ensure that
-    /// multihop may never be turned on accidentally.
-    ///
-    /// This function is to be seen as the identity of [`WireguardConstraints`]
-    /// together with [`Intersection`]. It is useful for merging two
-    /// [`WireguardConstraints`] in a way that always respects user-defined
-    /// settings.
-    pub const fn any() -> WireguardConstraints {
-        WireguardConstraints {
-            port: Constraint::Any,
-            ip_version: Constraint::Any,
-            use_multihop: Constraint::Any,
-            entry_location: Constraint::Any,
-        }
-    }
-
     /// Enable or disable multihop.
     pub fn use_multihop(&mut self, multihop: bool) {
-        self.use_multihop = Constraint::Only(multihop)
+        self.use_multihop = multihop
     }
 
     /// Check if multihop is enabled.
-    ///
-    /// # Note
-    ///
-    /// Since multihop is never assumed to be the default, and probably never
-    /// will, anything but [`Constraint::Only(true)`] should be treated as
-    /// multihop being disabled.
     pub fn multihop(&self) -> bool {
-        assert_ne!(self.use_multihop, Constraint::Any);
-        matches!(self.use_multihop, Constraint::Only(true))
-    }
-}
-
-// TODO(markus): `Default` can be derived if `use_multihop` is every (re)moved from
-// `WireguardConstraints`.
-impl Default for WireguardConstraints {
-    fn default() -> Self {
-        WireguardConstraints {
-            port: Constraint::Any,
-            ip_version: Constraint::Any,
-            use_multihop: Constraint::Only(false),
-            entry_location: Constraint::Any,
-        }
-    }
-}
-
-impl Intersection for WireguardConstraints {
-    fn intersection(self, other: Self) -> Option<Self>
-    where
-        Self: PartialEq,
-        Self: Sized,
-    {
-        Some(WireguardConstraints {
-            port: self.port.intersection(other.port)?,
-            ip_version: self.ip_version.intersection(other.ip_version)?,
-            use_multihop: self.use_multihop.intersection(other.use_multihop)?,
-            entry_location: self.entry_location.intersection(other.entry_location)?,
-        })
+        self.use_multihop
     }
 }
 
@@ -934,21 +757,6 @@ impl fmt::Display for SelectedObfuscation {
     }
 }
 
-impl Intersection for SelectedObfuscation {
-    fn intersection(self, other: Self) -> Option<Self>
-    where
-        Self: PartialEq,
-        Self: Sized,
-    {
-        match (self, other) {
-            (left, SelectedObfuscation::Auto) => Some(left),
-            (SelectedObfuscation::Auto, right) => Some(right),
-            (left, right) if left == right => Some(left),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Default, Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(target_os = "android", derive(IntoJava))]
 #[cfg_attr(target_os = "android", jnix(package = "net.mullvad.mullvadvpn.model"))]
@@ -1016,20 +824,6 @@ pub struct BridgeConstraints {
     pub location: Constraint<LocationConstraint>,
     pub providers: Constraint<Providers>,
     pub ownership: Constraint<Ownership>,
-}
-
-impl Intersection for BridgeConstraints {
-    fn intersection(self, other: Self) -> Option<Self>
-    where
-        Self: PartialEq,
-        Self: Sized,
-    {
-        Some(BridgeConstraints {
-            location: self.location.intersection(other.location)?,
-            providers: self.providers.intersection(other.providers)?,
-            ownership: self.ownership.intersection(other.ownership)?,
-        })
-    }
 }
 
 pub struct BridgeConstraintsFormatter<'a> {

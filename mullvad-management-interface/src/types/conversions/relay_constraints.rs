@@ -28,7 +28,7 @@ impl TryFrom<&proto::WireguardConstraints>
         Ok(mullvad_constraints::WireguardConstraints {
             port: Constraint::from(constraints.port.map(|port| port as u16)),
             ip_version: Constraint::from(ip_version),
-            use_multihop: Constraint::Only(constraints.use_multihop),
+            use_multihop: constraints.use_multihop,
             entry_location: constraints
                 .entry_location
                 .clone()

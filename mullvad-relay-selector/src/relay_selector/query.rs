@@ -1,7 +1,7 @@
 //! TODO(markus): Document the purpose of this module. Oh boi
 
 use mullvad_types::{
-    constraints::{Constraint, Intersection},
+    constraints::Constraint,
     relay_constraints::{
         BridgeConstraints, LocationConstraint, Ownership, Providers, SelectedObfuscation,
         TransportPort, Udp2TcpObfuscationSettings,
@@ -18,6 +18,39 @@ pub struct RelayQuery {
     pub tunnel_protocol: Constraint<TunnelType>,
     pub wireguard_constraints: WireguardRelayQuery,
     pub openvpn_constraints: OpenVpnRelayQuery,
+}
+
+/// Any type that wish to implement `Intersection` should make sure that the
+/// following properties are upheld:
+///
+/// - idempotency (if there is an identity element)
+/// - commutativity
+/// - associativity
+pub trait Intersection {
+    fn intersection(self, other: Self) -> Option<Self>
+    where
+        Self: PartialEq,
+        Self: Sized;
+}
+
+impl<T: PartialEq> Intersection for Constraint<T> {
+    /// Define the intersection between two arbitrary [`Constraint`]s.
+    ///
+    /// This operation may be compared to the set operation with the same name.
+    /// In contrast to the general set intersection, this function represents a
+    /// very specific case where [`Constraint::Any`] is equivalent to the set
+    /// universe and [`Constraint::Only`] represents a singleton set. Notable is
+    /// that the representation of any empty set is [`Option::None`].
+    fn intersection(self, other: Constraint<T>) -> Option<Constraint<T>> {
+        use Constraint::*;
+        match (self, other) {
+            (Any, Any) => Some(Any),
+            (Only(t), Any) | (Any, Only(t)) => Some(Only(t)),
+            // Pick any of `left` or `right` if they are the same.
+            (Only(left), Only(right)) if left == right => Some(Only(left)),
+            _ => None,
+        }
+    }
 }
 
 impl RelayQuery {
@@ -84,7 +117,6 @@ pub struct WireguardRelayQuery {
 
 impl WireguardRelayQuery {
     pub fn multihop(&self) -> bool {
-        // assert_ne!(self.use_multihop, Constraint::Any);
         matches!(self.use_multihop, Constraint::Only(true))
     }
 }
@@ -115,6 +147,21 @@ impl Intersection for WireguardRelayQuery {
             obfuscation: self.obfuscation.intersection(other.obfuscation)?,
             udp2tcp_port: self.udp2tcp_port.intersection(other.udp2tcp_port)?,
         })
+    }
+}
+
+impl Intersection for SelectedObfuscation {
+    fn intersection(self, other: Self) -> Option<Self>
+    where
+        Self: PartialEq,
+        Self: Sized,
+    {
+        match (self, other) {
+            (left, SelectedObfuscation::Auto) => Some(left),
+            (SelectedObfuscation::Auto, right) => Some(right),
+            (left, right) if left == right => Some(left),
+            _ => None,
+        }
     }
 }
 
@@ -206,6 +253,20 @@ impl Intersection for BridgeQuery {
             (left, right) if left == right => Some(left),
             _ => None,
         }
+    }
+}
+
+impl Intersection for BridgeConstraints {
+    fn intersection(self, other: Self) -> Option<Self>
+    where
+        Self: PartialEq,
+        Self: Sized,
+    {
+        Some(BridgeConstraints {
+            location: self.location.intersection(other.location)?,
+            providers: self.providers.intersection(other.providers)?,
+            ownership: self.ownership.intersection(other.ownership)?,
+        })
     }
 }
 
@@ -517,6 +578,92 @@ pub mod builder {
         pub fn bridge_ownership(mut self, ownership: Ownership) -> Self {
             self.protocol.bridge_settings.ownership = Constraint::Only(ownership);
             self
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use mullvad_types::constraints::Constraint;
+    use proptest::prelude::*;
+
+    use super::Intersection;
+
+    // Define proptest combinators for the `Constraint` type.
+
+    pub fn constraint<T>(
+        base_strategy: impl Strategy<Value = T> + 'static,
+    ) -> impl Strategy<Value = Constraint<T>>
+    where
+        T: core::fmt::Debug + std::clone::Clone + 'static,
+    {
+        prop_oneof![any(), only(base_strategy),]
+    }
+
+    pub fn only<T>(
+        base_strategy: impl Strategy<Value = T> + 'static,
+    ) -> impl Strategy<Value = Constraint<T>>
+    where
+        T: core::fmt::Debug + std::clone::Clone + 'static,
+    {
+        base_strategy.prop_map(Constraint::Only)
+    }
+
+    pub fn any<T>() -> impl Strategy<Value = Constraint<T>>
+    where
+        T: core::fmt::Debug + std::clone::Clone + 'static,
+    {
+        Just(Constraint::Any)
+    }
+
+    proptest! {
+        #[test]
+        fn identity(x in only(proptest::arbitrary::any::<bool>())) {
+            // Identity laws
+            //  x ∩ identity = x
+            //  identity ∩ x = x
+
+            // The identity element
+            let identity = Constraint::Any;
+            prop_assert_eq!(x.intersection(identity), x.into());
+            prop_assert_eq!(identity.intersection(x), x.into());
+        }
+
+        #[test]
+        fn idempotency (x in constraint(proptest::arbitrary::any::<bool>())) {
+            // Idempotency law
+            //  x ∩ x = x
+            prop_assert_eq!(x.intersection(x), x.into()) // lift x to the return type of `intersection`
+        }
+
+        #[test]
+        fn commutativity(x in constraint(proptest::arbitrary::any::<bool>()),
+                         y in constraint(proptest::arbitrary::any::<bool>())) {
+            // Commutativity law
+            //  x ∩ y = y ∩ x
+            prop_assert_eq!(x.intersection(y), y.intersection(x))
+        }
+
+        #[test]
+        fn associativity(x in constraint(proptest::arbitrary::any::<bool>()),
+                         y in constraint(proptest::arbitrary::any::<bool>()),
+                         z in constraint(proptest::arbitrary::any::<bool>()))
+        {
+            // Associativity law
+            //  (x ∩ y) ∩ z = x ∩ (y ∩ z)
+            let left: Option<_> = {
+                x.intersection(y).and_then(|xy| xy.intersection(z))
+            };
+            let right: Option<_> = {
+                // It is fine to rewrite the order of the application from
+                //  x ∩ (y ∩ z)
+                // to
+                //  (y ∩ z) ∩ x
+                // due to the commutative property of intersection
+                (y.intersection(z)).and_then(|yz| yz.intersection(x))
+            };
+            prop_assert_eq!(left, right);
         }
     }
 }

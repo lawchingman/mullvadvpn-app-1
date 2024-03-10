@@ -2032,6 +2032,7 @@ dependencies = [
  "log",
  "mullvad-types",
  "once_cell",
+ "proptest",
  "rand 0.8.5",
  "serde_json",
  "talpid-types",

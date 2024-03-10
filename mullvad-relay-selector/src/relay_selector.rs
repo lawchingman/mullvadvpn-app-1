@@ -18,7 +18,7 @@ use std::{
 
 use matcher::{BridgeMatcher, RelayMatcher, WireguardMatcher};
 use mullvad_types::{
-    constraints::{Constraint, Intersection},
+    constraints::Constraint,
     custom_list::CustomListsSettings,
     endpoint::{MullvadEndpoint, MullvadWireguardEndpoint},
     location::{Coordinates, Location},
@@ -45,7 +45,7 @@ use crate::{
 use self::{
     detailer::{OpenVpnDetailer, WireguardDetailer},
     matcher::AnyTunnelMatcher,
-    query::RelayQuery,
+    query::{RelayQuery, Intersection},
 };
 
 /// [`RETRY_ORDER`] defines an ordered set of relay parameters which the relay selector should prioritize on
@@ -138,7 +138,7 @@ impl From<SelectorConfig> for RelayQuery {
             WireguardRelayQuery {
                 port,
                 ip_version,
-                use_multihop,
+                use_multihop: Constraint::Only(use_multihop),
                 entry_location,
                 obfuscation: obfuscation_settings.selected_obfuscation,
                 udp2tcp_port: Constraint::Only(obfuscation_settings.udp2tcp.clone()),
