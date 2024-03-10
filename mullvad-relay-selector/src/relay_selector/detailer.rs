@@ -16,7 +16,10 @@ use mullvad_types::{
 };
 use talpid_types::net::{all_of_the_internet, wireguard::PeerConfig, Endpoint, IpVersion};
 
-use super::query::{OpenVpnRelayQuery, WireguardRelayQuery};
+use super::{
+    query::{OpenVpnRelayQuery, WireguardRelayQuery},
+    WireguardConfig,
+};
 
 /// Given a Wireguad relay (and optionally an entry relay if multihop is used) and the original
 /// query the relay selector used, fill in all connection details to produce a valid
@@ -25,8 +28,7 @@ use super::query::{OpenVpnRelayQuery, WireguardRelayQuery};
 /// [`to_endpoint`]: WireguardDetailer::to_endpoint
 pub struct WireguardDetailer {
     wireguard_constraints: WireguardRelayQuery,
-    exit: Relay,
-    entry: Option<Relay>,
+    config: WireguardConfig,
     data: WireguardEndpointData,
 }
 
@@ -36,112 +38,107 @@ impl WireguardDetailer {
     pub const WIREGUARD_EXIT_PORT: u16 = 51820;
 
     /// Create a new [`WireguardDetailer`].
-    pub const fn new(query: WireguardRelayQuery, exit: Relay, data: WireguardEndpointData) -> Self {
+    pub const fn new(
+        query: WireguardRelayQuery,
+        config: WireguardConfig,
+        data: WireguardEndpointData,
+    ) -> Self {
         Self {
             wireguard_constraints: query,
-            exit,
-            entry: None,
+            config,
             data,
-        }
-    }
-
-    /// Set the entry peer for `self`. This is necessary to generate a correct [`MullvadEndpoint`]
-    /// for a multihop setup using [`to_endpoint`].
-    ///
-    /// [`to_endpoint`]: WireguardDetailer::to_endpoint
-    pub fn set_entry(self, entry: Relay) -> Self {
-        Self {
-            entry: Some(entry),
-            ..self
         }
     }
 
     /// Constructs a `MullvadEndpoint` with details for a Wireguard circuit.
     ///
-    /// If `self.entry` is `None`, it configures a single-hop connection using the `self.exit` relay data.
-    /// Otherwise, it constructs a multihop setup using both `self.entry` and `self.exit` to set up appropriate
-    /// peer configurations.
+    /// If entry is `None`, `to_endpoint` configures a single-hop connection using the exit relay data.
+    /// Otherwise, it constructs a multihop setup using both entry and exit to set up appropriate peer
+    /// configurations.
     ///
     /// # Returns
     /// - A configured Mullvad endpoint for Wireguard, encapsulating either a single-hop or multi-hop connection setup.
     /// - Returns `None` if the desired port is not in a valid port range (see
     /// [`WireguradRelayQuery::port`]) or relay addresses cannot be resolved.
     pub fn to_endpoint(&self) -> Option<MullvadEndpoint> {
-        match self.entry {
-            None => {
-                let endpoint = {
-                    let host = self.get_address_for_wireguard_relay(&self.exit)?;
-                    let port = self.get_port_for_wireguard_relay(&self.data)?;
-                    SocketAddr::new(host, port)
-                };
-                let peer_config = PeerConfig {
-                    public_key: self
-                        .exit
-                        .endpoint_data
-                        .unwrap_wireguard_ref()
-                        .public_key
-                        .clone(),
-                    endpoint,
-                    allowed_ips: all_of_the_internet(),
-                    // This will be filled in later
-                    psk: None,
-                };
-                Some(MullvadEndpoint::Wireguard(MullvadWireguardEndpoint {
-                    peer: peer_config,
-                    exit_peer: None,
-                    ipv4_gateway: self.data.ipv4_gateway,
-                    ipv6_gateway: self.data.ipv6_gateway,
-                }))
-            }
-            // In a multihop circuit, we need to provide an exit peer configuration in addition to the
-            // peer configuration.
-            Some(ref _entry) => {
-                let exit_endpoint = {
-                    let ip = self.exit.ipv4_addr_in;
-                    // The port that the exit relay listens for incoming connections from entry
-                    // relays is *not* derived from the original query / user settings.
-                    let port = Self::WIREGUARD_EXIT_PORT;
-                    SocketAddrV4::new(ip, port).into()
-                };
-                let exit = PeerConfig {
-                    public_key: self
-                        .exit
-                        .endpoint_data
-                        .unwrap_wireguard_ref()
-                        .public_key
-                        .clone(),
-                    endpoint: exit_endpoint,
-                    // The exit peer should be able to route incomming VPN traffic to the rest of
-                    // the internet.
-                    allowed_ips: all_of_the_internet(),
-                    // This will be filled in later
-                    psk: None,
-                };
-
-                let host = self.get_address_for_wireguard_relay(_entry)?;
-                let port = self.get_port_for_wireguard_relay(&self.data)?;
-                let entry = PeerConfig {
-                    public_key: _entry
-                        .endpoint_data
-                        .unwrap_wireguard_ref()
-                        .public_key
-                        .clone(),
-                    endpoint: SocketAddr::new(host, port),
-                    // The entry peer should only be able to route incomming VPN traffic to the
-                    // exit peer.
-                    allowed_ips: vec![IpNetwork::from(exit.endpoint.ip())],
-                    // This will be filled in later
-                    psk: None,
-                };
-
-                Some(MullvadEndpoint::Wireguard(MullvadWireguardEndpoint {
-                    peer: entry,
-                    exit_peer: Some(exit),
-                    ipv4_gateway: self.data.ipv4_gateway,
-                    ipv6_gateway: self.data.ipv6_gateway,
-                }))
-            }
+        match &self.config {
+            WireguardConfig::Singlehop { exit } => self.tmp_singlehop(exit),
+            WireguardConfig::Multihop { exit, entry } => self.tmp_multihop(exit, entry),
         }
+    }
+
+    /// Configure a single-hop connection using the exit relay data.
+    /// TODO(markus): Rename
+    fn tmp_singlehop(&self, exit: &Relay) -> Option<MullvadEndpoint> {
+        let endpoint = {
+            let host = self.get_address_for_wireguard_relay(exit)?;
+            let port = self.get_port_for_wireguard_relay(&self.data)?;
+            SocketAddr::new(host, port)
+        };
+        let peer_config = PeerConfig {
+            public_key: exit.endpoint_data.unwrap_wireguard_ref().public_key.clone(),
+            endpoint,
+            allowed_ips: all_of_the_internet(),
+            // This will be filled in later, not the relay selector's problem
+            psk: None,
+        };
+        Some(MullvadEndpoint::Wireguard(MullvadWireguardEndpoint {
+            peer: peer_config,
+            exit_peer: None,
+            ipv4_gateway: self.data.ipv4_gateway,
+            ipv6_gateway: self.data.ipv6_gateway,
+        }))
+    }
+
+    /// Configure a multihop connection using the entry & exit relay data.
+    ///
+    /// # Note
+    /// In a multihop circuit, we need to provide an exit peer configuration in addition to the
+    /// peer configuration.
+    /// TODO(markus): Rename
+    fn tmp_multihop(&self, exit: &Relay, entry: &Relay) -> Option<MullvadEndpoint> {
+        let exit_endpoint = {
+            let ip = exit.ipv4_addr_in;
+            // The port that the exit relay listens for incoming connections from entry
+            // relays is *not* derived from the original query / user settings.
+            let port = Self::WIREGUARD_EXIT_PORT;
+            SocketAddrV4::new(ip, port).into()
+        };
+        let exit = PeerConfig {
+            public_key: exit.endpoint_data.unwrap_wireguard_ref().public_key.clone(),
+            endpoint: exit_endpoint,
+            // The exit peer should be able to route incomming VPN traffic to the rest of
+            // the internet.
+            allowed_ips: all_of_the_internet(),
+            // This will be filled in later, not the relay selector's problem
+            psk: None,
+        };
+
+        let entry_endpoint = {
+            let host = self.get_address_for_wireguard_relay(entry)?;
+            let port = self.get_port_for_wireguard_relay(&self.data)?;
+            SocketAddr::new(host, port)
+        };
+        let entry = PeerConfig {
+            public_key: entry
+                .endpoint_data
+                .unwrap_wireguard_ref()
+                .public_key
+                .clone(),
+            endpoint: entry_endpoint,
+            // The entry peer should only be able to route incomming VPN traffic to the
+            // exit peer.
+            allowed_ips: vec![IpNetwork::from(exit.endpoint.ip())],
+            // This will be filled in later
+            psk: None,
+        };
+
+        Some(MullvadEndpoint::Wireguard(MullvadWireguardEndpoint {
+            peer: entry,
+            exit_peer: Some(exit),
+            ipv4_gateway: self.data.ipv4_gateway,
+            ipv6_gateway: self.data.ipv6_gateway,
+        }))
     }
 
     /// Get the correct IP address for the given relay.

@@ -25,7 +25,7 @@ use crate::{
         query::{builder::RelayQueryBuilder, BridgeQuery, OpenVpnRelayQuery},
         RelaySelector, SelectorConfig,
     },
-    GetRelay,
+    GetRelay, WireguardConfig,
 };
 
 use super::RETRY_ORDER;
@@ -173,7 +173,10 @@ const TCP: TransportProtocol = TransportProtocol::Tcp;
 // Helper functions
 fn unwrap_relay(get_result: GetRelay) -> Relay {
     match get_result {
-        GetRelay::Wireguard { exit, .. } => exit,
+        GetRelay::Wireguard { inner, .. } => match inner {
+            crate::WireguardConfig::Singlehop { exit } => exit,
+            crate::WireguardConfig::Multihop { exit, .. } => exit,
+        },
         GetRelay::OpenVpn { exit, .. } => exit,
         GetRelay::Custom(custom) => {
             panic!("Can not extract regular relay from custom relay: {custom}")
@@ -309,8 +312,11 @@ fn test_wireguard_entry() {
         // The exit relay must not equal the entry relay
         let relay = relay_selector.get_relay_by_query(query).unwrap();
         match relay {
-            GetRelay::Wireguard { exit, entry, .. } => {
-                assert_ne!(exit.hostname, entry.unwrap().hostname);
+            GetRelay::Wireguard {
+                inner: WireguardConfig::Multihop { exit, entry },
+                ..
+            } => {
+                assert_ne!(exit.hostname, entry.hostname);
             }
             wrong_relay => panic!(
             "Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"
@@ -328,8 +334,10 @@ fn test_wireguard_entry() {
 
         let relay = relay_selector.get_relay_by_query(query).unwrap();
         match relay {
-            GetRelay::Wireguard { exit, entry, .. } => {
-                let entry = entry.unwrap();
+            GetRelay::Wireguard {
+                inner: WireguardConfig::Multihop { exit, entry },
+                ..
+            } => {
                 assert_ne!(exit.hostname, entry.hostname);
                 assert_ne!(exit.ipv4_addr_in, entry.ipv4_addr_in);
                 assert_eq!(exit.hostname, specific_hostname)
@@ -479,12 +487,13 @@ fn test_selecting_wireguard_location_will_consider_multihop() {
     for _ in 0..100 {
         let query = RelayQueryBuilder::new().wireguard().multihop().build();
         let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
-        match relay {
-            GetRelay::Wireguard { entry, .. } => {
-                assert!(entry.is_some());
+        assert!(matches!(
+            relay,
+            GetRelay::Wireguard {
+                inner: WireguardConfig::Multihop { .. },
+                ..
             }
-            wrong_relay => panic!("Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"),
-        }
+        ))
     }
 }
 
@@ -500,9 +509,11 @@ fn test_selecting_any_relay_will_consider_multihop() {
         let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
         match relay {
             GetRelay::Wireguard {
-                endpoint, entry, ..
+                endpoint,
+                inner: WireguardConfig::Multihop { .. },
+                ..
             } => {
-                assert!(matches!(endpoint, MullvadEndpoint::Wireguard(_)) && entry.is_some());
+                assert!(matches!(endpoint, MullvadEndpoint::Wireguard(_)));
             }
             wrong_relay => panic!(
             "Relay selector should have picked a Wireguard relay, instead chose {wrong_relay:?}"
@@ -522,9 +533,10 @@ fn test_selecting_wireguard_endpoint_with_udp2tcp_obfuscation() {
     let relay = relay_selector.get_relay_by_query(query).unwrap();
     match relay {
         GetRelay::Wireguard {
-            entry, obfuscator, ..
+            obfuscator,
+            inner: WireguardConfig::Singlehop { .. },
+            ..
         } => {
-            assert!(entry.is_none());
             assert!(obfuscator.is_some_and(|obfuscator| matches!(
                 obfuscator.config,
                 ObfuscatorConfig::Udp2Tcp { .. }
@@ -553,13 +565,10 @@ fn test_selecting_wireguard_endpoint_with_auto_obfuscation() {
         match relay {
             GetRelay::Wireguard {
                 endpoint,
-                exit,
                 obfuscator,
                 ..
             } => {
                 assert!(obfuscator.is_none());
-                // Seems redundant, but ok.
-                assert_eq!(tunnel_type(&exit), TunnelType::Wireguard);
                 assert!(matches!(endpoint, MullvadEndpoint::Wireguard { .. }));
             }
             wrong_relay => panic!(
@@ -582,9 +591,10 @@ fn test_selected_wireguard_endpoints_use_correct_port_ranges() {
         let relay = relay_selector.get_relay_by_query(query.clone()).unwrap();
         match relay {
             GetRelay::Wireguard {
-                entry, obfuscator, ..
+                obfuscator,
+                inner: WireguardConfig::Singlehop { .. },
+                ..
             } => {
-                assert!(entry.is_none());
                 let Some(obfuscator) = obfuscator else {
                     panic!("Relay selector should have picked an obfuscator")
                 };
@@ -682,8 +692,9 @@ fn test_providers() {
             .build();
         let relay = relay_selector.get_relay_by_query(query).unwrap();
 
-        match relay {
-            GetRelay::Wireguard { exit, .. } => {
+        match &relay {
+            GetRelay::Wireguard { .. } => {
+                let exit = unwrap_relay(relay);
                 assert!(
                     EXPECTED_PROVIDERS.contains(&exit.provider.as_str()),
                     "cannot find provider {provider} in {EXPECTED_PROVIDERS:?}",

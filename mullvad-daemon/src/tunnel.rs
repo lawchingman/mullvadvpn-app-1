@@ -8,7 +8,7 @@ use std::{
 
 use tokio::sync::Mutex;
 
-use mullvad_relay_selector::{GetRelay, RelaySelector, SelectedBridge};
+use mullvad_relay_selector::{GetRelay, RelaySelector, SelectedBridge, WireguardConfig};
 use mullvad_types::{
     endpoint::MullvadWireguardEndpoint, location::GeoIpLocation, relay_list::Relay,
     settings::TunnelOptions,
@@ -154,18 +154,21 @@ impl InnerParametersGenerator {
         match selected_relay {
             GetRelay::Wireguard {
                 endpoint,
-                exit,
-                entry,
                 obfuscator,
+                inner,
             } => {
                 let (obfuscator_relay, obfuscator_config) = match obfuscator {
                     Some(obfuscator) => (Some(obfuscator.relay), Some(obfuscator.config)),
                     None => (None, None),
                 };
 
+                let (wg_entry, wg_exit) = match inner {
+                    WireguardConfig::Singlehop { exit } => (None, exit),
+                    WireguardConfig::Multihop { exit, entry } => (Some(entry), exit),
+                };
                 self.last_generated_relays = Some(LastSelectedRelays::WireGuard {
-                    wg_entry: entry.clone(),
-                    wg_exit: exit.clone(),
+                    wg_entry,
+                    wg_exit,
                     obfuscator: obfuscator_relay,
                 });
 

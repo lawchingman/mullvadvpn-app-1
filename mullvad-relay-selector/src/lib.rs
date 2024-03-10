@@ -9,4 +9,6 @@ mod relay_selector;
 // Re-exports
 pub use error::Error;
 pub use relay_selector::RelaySelector;
-pub use relay_selector::{GetRelay, SelectedBridge, SelectedObfuscator, SelectorConfig};
+pub use relay_selector::{
+    GetRelay, SelectedBridge, SelectedObfuscator, SelectorConfig, WireguardConfig,
+};
