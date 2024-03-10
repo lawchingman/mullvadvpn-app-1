@@ -421,31 +421,17 @@ impl RelaySelector {
             Constraint::Only(TunnelType::OpenVpn) => {
                 let exit =
                     Self::choose_relay(query, config, parsed_relays).ok_or(Error::NoRelay)?;
-                let detailer = OpenVpnDetailer::new(
-                    query.openvpn_constraints.clone(),
-                    exit.clone(),
-                    parsed_relays.parsed_list().openvpn.clone(),
-                );
-                // TODO(markus): This is no the best error value in this situation..
-                let endpoint = detailer.to_endpoint().ok_or(Error::NoRelay)?;
-                let bridge = match endpoint {
-                    MullvadEndpoint::OpenVpn(endpoint)
-                        if BridgeQuery::should_use_bridge(
-                            &query.openvpn_constraints.bridge_settings,
-                        ) =>
-                    {
-                        let bridge_query =
-                            &query.openvpn_constraints.bridge_settings.clone().unwrap();
-                        Self::get_bridge(
-                            bridge_query,
-                            &exit,
-                            &endpoint.protocol,
-                            parsed_relays,
-                            &config.custom_lists,
-                        )?
-                    }
-                    _ => None,
-                };
+                let endpoint = Self::get_openvpn_endpoint(query, exit.clone(), parsed_relays)?;
+                let bridge = Self::get_openvpn_bridge(
+                    query,
+                    &exit,
+                    // Note: It should always be safe to call `unwrap_openvpn` here, unless there
+                    // is a bug in `OpenVpnDetailer::to_endpoint`.
+                    &endpoint.unwrap_openvpn().protocol,
+                    parsed_relays,
+                    config,
+                )?;
+
                 Ok(GetRelay::OpenVpn {
                     endpoint,
                     exit,
@@ -518,6 +504,8 @@ impl RelaySelector {
     /// preferences applied.
     fn get_tunnel_endpoints(
         parsed_relays: &ParsedRelays,
+        // Note: It should always be safe to call `unwrap_openvpn` here, unless there
+        // is a bug in `OpenVpnDetailer::to_endpoint`.
         relay_constraints: &RelayQuery,
         bridge_state: BridgeState,
         custom_lists: &CustomListsSettings,
@@ -648,6 +636,22 @@ impl RelaySelector {
         }
     }
 
+    /// Constructs a `MullvadEndpoint` with details for how to connect to `relay`.
+    fn get_openvpn_endpoint(
+        query: &RelayQuery,
+        relay: Relay,
+        parsed_relays: &ParsedRelays,
+    ) -> Result<MullvadEndpoint, Error> {
+        OpenVpnDetailer::new(
+            query.openvpn_constraints.clone(),
+            relay,
+            parsed_relays.parsed_list().openvpn.clone(),
+        )
+        .to_endpoint()
+        // TODO(markus): This is no the best error value in this situation..
+        .ok_or(Error::NoRelay)
+    }
+
     /// Selects a suitable bridge based on the specified settings, relay information, and transport protocol.
     ///
     /// # Parameters
@@ -661,28 +665,34 @@ impl RelaySelector {
     /// * On success, returns an `Option` containing the selected bridge, if one is found. Returns `None` if no suitable bridge meets the criteria.
     /// * `Error::NoBridge` if attempting to use OpenVPN bridges over UDP, as this is unsupported.
     /// * `Error::NoRelay` if `relay` does not have a location set.
-    fn get_bridge(
-        query: &BridgeQuery,
+    fn get_openvpn_bridge(
+        query: &RelayQuery,
         relay: &Relay,
         protocol: &TransportProtocol,
         parsed_relays: &ParsedRelays,
-        custom_lists: &CustomListsSettings,
+        config: &SelectorConfig,
     ) -> Result<Option<SelectedBridge>, Error> {
-        match protocol {
-            TransportProtocol::Udp => {
-                log::error!("Can not use OpenVPN bridges over UDP");
-                Err(Error::NoBridge)
-            }
-            TransportProtocol::Tcp => {
-                let location = relay.location.as_ref().ok_or(Error::NoRelay)?;
-                Ok(Self::get_bridge_for(
-                    query,
-                    location,
-                    // FIXME: This is temporary while talpid-core only supports TCP proxies
-                    TransportProtocol::Tcp,
-                    parsed_relays,
-                    custom_lists,
-                ))
+        if !BridgeQuery::should_use_bridge(&query.openvpn_constraints.bridge_settings) {
+            Ok(None)
+        } else {
+            let bridge_query = &query.openvpn_constraints.bridge_settings.clone().unwrap();
+            let custom_lists = &config.custom_lists;
+            match protocol {
+                TransportProtocol::Udp => {
+                    log::error!("Can not use OpenVPN bridges over UDP");
+                    Err(Error::NoBridge)
+                }
+                TransportProtocol::Tcp => {
+                    let location = relay.location.as_ref().ok_or(Error::NoRelay)?;
+                    Ok(Self::get_bridge_for(
+                        bridge_query,
+                        location,
+                        // FIXME: This is temporary while talpid-core only supports TCP proxies
+                        TransportProtocol::Tcp,
+                        parsed_relays,
+                        custom_lists,
+                    ))
+                }
             }
         }
     }
