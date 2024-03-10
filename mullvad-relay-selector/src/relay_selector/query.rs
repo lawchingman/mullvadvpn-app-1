@@ -337,8 +337,8 @@ pub mod builder {
     impl RelayQueryBuilder<Any> {
         /// Create a new [`RelayQueryBuilder`] with unopinionated defaults.
         ///
-        /// Call [`RelayQueryBuilder::build`] to convert the builder into a
-        /// [`RelayQuery`], which is used to guide the [`RelaySelector`]
+        /// Call [`Self::build`] to convert the builder into a [`RelayQuery`],
+        /// which is used to guide the [`RelaySelector`]
         ///
         /// TODO(markus): Make sure this module link is up to date!
         ///
@@ -386,10 +386,8 @@ pub mod builder {
     /// If multihop has been enabled, the builder should expose an option to
     /// select entry point.
     pub struct Wireguard<Multihop, Obfuscation> {
-        /// TODO(markus): Remove pub modifier
-        pub multihop: Multihop,
-        /// TODO(markus): Remove pub modifier
-        pub obfuscation: Obfuscation,
+        multihop: Multihop,
+        obfuscation: Obfuscation,
     }
 
     // This impl-block is quantified over all configurations
@@ -478,10 +476,8 @@ pub mod builder {
     /// to be set first before the option to select a specific port is
     /// exposed.
     pub struct OpenVPN<TransportPort, Bridge> {
-        // TODO(markus): Remove this pub modifier
-        pub transport_port: TransportPort,
-        // TODO(markus): Remove this pub modifier
-        pub bridge_settings: Bridge,
+        transport_port: TransportPort,
+        bridge_settings: Bridge,
     }
 
     // This impl-block is quantified over all configurations
@@ -581,7 +577,6 @@ pub mod builder {
         }
     }
 }
-
 
 #[cfg(test)]
 mod test {
