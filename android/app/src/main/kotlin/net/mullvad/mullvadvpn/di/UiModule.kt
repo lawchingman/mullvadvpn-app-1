@@ -176,9 +176,7 @@ val uiModule = module {
     viewModel { parameters -> CreateCustomListDialogViewModel(parameters.get(), get()) }
     viewModel { CustomListLocationsViewModel(get(), get(), get()) }
     viewModel { parameters -> EditCustomListViewModel(parameters.get(), get()) }
-    viewModel { parameters ->
-        EditCustomListNameDialogViewModel(parameters.get(), parameters.get(), get())
-    }
+    viewModel { EditCustomListNameDialogViewModel(get(), get()) }
     viewModel { CustomListsViewModel(get(), get()) }
     viewModel { parameters -> DeleteCustomListConfirmationViewModel(parameters.get(), get()) }
     viewModel { ServerIpOverridesViewModel(get(), get(), get(), get()) }

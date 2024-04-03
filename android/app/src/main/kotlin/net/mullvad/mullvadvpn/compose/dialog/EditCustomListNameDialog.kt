@@ -27,7 +27,6 @@ import net.mullvad.mullvadvpn.lib.theme.AppTheme
 import net.mullvad.mullvadvpn.viewmodel.EditCustomListNameDialogSideEffect
 import net.mullvad.mullvadvpn.viewmodel.EditCustomListNameDialogViewModel
 import org.koin.androidx.compose.koinViewModel
-import org.koin.core.parameter.parametersOf
 
 @Preview
 @Composable
@@ -35,15 +34,17 @@ private fun PreviewEditCustomListNameDialog() {
     AppTheme { EditCustomListNameDialog(UpdateCustomListUiState()) }
 }
 
+data class EditCustomListNameNavArg(val customListId: String, val initialName: String)
+
 @Composable
-@Destination(style = DestinationStyle.Dialog::class)
+@Destination(
+    style = DestinationStyle.Dialog::class,
+    navArgsDelegate = EditCustomListNameNavArg::class
+)
 fun EditCustomListName(
     backNavigator: ResultBackNavigator<CustomListResult.Renamed>,
-    customListId: String,
-    initialName: String
 ) {
-    val vm: EditCustomListNameDialogViewModel =
-        koinViewModel(parameters = { parametersOf(customListId, initialName) })
+    val vm: EditCustomListNameDialogViewModel = koinViewModel()
     LaunchedEffectCollect(vm.uiSideEffect) { sideEffect ->
         when (sideEffect) {
             is EditCustomListNameDialogSideEffect.ReturnWithResult -> {

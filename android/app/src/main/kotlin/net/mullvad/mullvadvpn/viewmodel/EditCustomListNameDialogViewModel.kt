@@ -1,5 +1,6 @@
 package net.mullvad.mullvadvpn.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.channels.BufferOverflow
@@ -12,16 +13,18 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import net.mullvad.mullvadvpn.compose.communication.CustomListAction
 import net.mullvad.mullvadvpn.compose.communication.CustomListResult
+import net.mullvad.mullvadvpn.compose.destinations.EditCustomListNameDestination
 import net.mullvad.mullvadvpn.compose.state.UpdateCustomListUiState
 import net.mullvad.mullvadvpn.model.CustomListsError
 import net.mullvad.mullvadvpn.usecase.customlists.CustomListActionUseCase
 import net.mullvad.mullvadvpn.usecase.customlists.CustomListsException
 
 class EditCustomListNameDialogViewModel(
-    private val customListId: String,
-    private val initialName: String,
-    private val customListActionUseCase: CustomListActionUseCase
+    private val customListActionUseCase: CustomListActionUseCase,
+    handle: SavedStateHandle
 ) : ViewModel() {
+
+    val navArgs = EditCustomListNameDestination.argsFrom(handle)
 
     private val _uiSideEffect =
         Channel<EditCustomListNameDialogSideEffect>(1, BufferOverflow.DROP_OLDEST)
@@ -31,11 +34,11 @@ class EditCustomListNameDialogViewModel(
 
     val uiState =
         _error
-            .map { UpdateCustomListUiState(name = initialName, error = it) }
+            .map { UpdateCustomListUiState(name = navArgs.initialName, error = it) }
             .stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(),
-                UpdateCustomListUiState(name = initialName)
+                UpdateCustomListUiState(name = navArgs.initialName)
             )
 
     fun updateCustomListName(name: String) {
@@ -43,8 +46,8 @@ class EditCustomListNameDialogViewModel(
             customListActionUseCase
                 .performAction(
                     CustomListAction.Rename(
-                        customListId = customListId,
-                        name = initialName,
+                        customListId = navArgs.customListId,
+                        name = navArgs.initialName,
                         newName = name
                     )
                 )
