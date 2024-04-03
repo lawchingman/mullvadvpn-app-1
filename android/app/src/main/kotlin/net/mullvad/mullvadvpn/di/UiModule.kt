@@ -174,9 +174,7 @@ val uiModule = module {
     viewModel { PaymentViewModel(get()) }
     viewModel { FilterViewModel(get()) }
     viewModel { parameters -> CreateCustomListDialogViewModel(parameters.get(), get()) }
-    viewModel { parameters ->
-        CustomListLocationsViewModel(parameters.get(), parameters.get(), get(), get())
-    }
+    viewModel { CustomListLocationsViewModel(get(), get(), get()) }
     viewModel { parameters -> EditCustomListViewModel(parameters.get(), get()) }
     viewModel { parameters ->
         EditCustomListNameDialogViewModel(parameters.get(), parameters.get(), get())

@@ -51,7 +51,6 @@ import net.mullvad.mullvadvpn.relaylist.RelayItem
 import net.mullvad.mullvadvpn.viewmodel.CustomListLocationsSideEffect
 import net.mullvad.mullvadvpn.viewmodel.CustomListLocationsViewModel
 import org.koin.androidx.compose.koinViewModel
-import org.koin.core.parameter.parametersOf
 
 @Composable
 @Preview
@@ -59,19 +58,22 @@ private fun PreviewCustomListLocationScreen() {
     AppTheme { CustomListLocationsScreen(state = CustomListLocationsUiState.Content.Data()) }
 }
 
+data class CustomListLocationsNavArgs(
+    val customListId: String,
+    val newList: Boolean,
+)
+
 @Composable
-@Destination(style = SlideInFromRightTransition::class)
+@Destination(
+    style = SlideInFromRightTransition::class,
+    navArgsDelegate = CustomListLocationsNavArgs::class
+)
 fun CustomListLocations(
     navigator: DestinationsNavigator,
     backNavigator: ResultBackNavigator<CustomListResult.LocationsChanged>,
     discardChangesResultRecipient: ResultRecipient<DiscardChangesDialogDestination, Boolean>,
-    customListId: String,
-    newList: Boolean,
 ) {
-    val customListsViewModel =
-        koinViewModel<CustomListLocationsViewModel>(
-            parameters = { parametersOf(customListId, newList) }
-        )
+    val customListsViewModel = koinViewModel<CustomListLocationsViewModel>()
 
     discardChangesResultRecipient.onNavResult {
         when (it) {
