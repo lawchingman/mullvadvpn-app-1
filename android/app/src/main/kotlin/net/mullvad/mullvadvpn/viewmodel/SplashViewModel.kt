@@ -3,10 +3,11 @@ package net.mullvad.mullvadvpn.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import net.mullvad.mullvadvpn.constant.ACCOUNT_EXPIRY_TIMEOUT_MS
@@ -23,9 +24,13 @@ class SplashViewModel(
     private val accountRepository: AccountRepository,
 ) : ViewModel() {
 
-    val uiSideEffect = flow { emit(getStartDestination()) }
+    val uiSideEffect = MutableStateFlow<SplashUiSideEffect?>(null)
 
-    private suspend fun getStartDestination(): SplashUiSideEffect {
+    init {
+        viewModelScope.launch { uiSideEffect.value = getStartDestination() }
+    }
+
+    suspend fun getStartDestination(): SplashUiSideEffect {
         if (!privacyDisclaimerRepository.hasAcceptedPrivacyDisclosure()) {
             return SplashUiSideEffect.NavigateToPrivacyDisclaimer
         }

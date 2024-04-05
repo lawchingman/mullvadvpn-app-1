@@ -8,10 +8,12 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -28,6 +30,7 @@ import net.mullvad.mullvadvpn.ui.serviceconnection.ServiceConnectionManager
 import net.mullvad.mullvadvpn.ui.serviceconnection.ServiceConnectionState
 import net.mullvad.mullvadvpn.viewmodel.ChangelogViewModel
 import net.mullvad.mullvadvpn.viewmodel.NoDaemonViewModel
+import net.mullvad.mullvadvpn.viewmodel.SplashViewModel
 import org.koin.android.ext.android.getKoin
 import org.koin.core.context.loadKoinModules
 
@@ -44,6 +47,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var serviceConnectionManager: ServiceConnectionManager
     private lateinit var changelogViewModel: ChangelogViewModel
     private lateinit var serviceConnectionViewModel: NoDaemonViewModel
+    private lateinit var splashViewModel: SplashViewModel
+    private var launched: Boolean = false
+    private var ready: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         loadKoinModules(listOf(uiModule, paymentModule))
@@ -58,11 +64,23 @@ class MainActivity : ComponentActivity() {
             serviceConnectionManager = get()
             changelogViewModel = get()
             serviceConnectionViewModel = get()
+            splashViewModel = get()
         }
         lifecycle.addObserver(serviceConnectionViewModel)
 
         super.onCreate(savedInstanceState)
 
+        installSplashScreen().setKeepOnScreenCondition {
+            val result = splashViewModel.uiSideEffect.value == null
+            if(!result) {
+                launched = true
+                lifecycleScope.launch { delay(20)
+                    ready = true
+                }
+            }
+            Log.d("mullvad", "Splash screen is kept on screen: $result")
+            !ready
+        }
         setContent { AppTheme { MullvadApp() } }
 
         // This is to protect against tapjacking attacks

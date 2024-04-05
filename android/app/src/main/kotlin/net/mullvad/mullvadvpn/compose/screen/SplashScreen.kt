@@ -1,5 +1,6 @@
 package net.mullvad.mullvadvpn.compose.screen
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +56,7 @@ fun Splash(navigator: DestinationsNavigator) {
     // We use CollectSideEffectWithLifecycle to re-evaluate the splash decision if the user
     // navigates away from the app to the resume before we leave the splash screen
     CollectSideEffectWithLifecycle(viewModel.uiSideEffect) {
+        Log.d("mullvad", "Splash Side effect $it!")
         when (it) {
             SplashUiSideEffect.NavigateToConnect ->
                 navigator.navigate(ConnectDestination) {
@@ -74,6 +76,8 @@ fun Splash(navigator: DestinationsNavigator) {
                 navigator.navigate(OutOfTimeDestination) {
                     popUpTo(NavGraphs.root) { inclusive = true }
                 }
+
+            null -> Log.d("mullvad", "Splash Awaiting response!")
         }
     }
 

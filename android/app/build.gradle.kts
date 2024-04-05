@@ -317,6 +317,7 @@ dependencies {
     implementation(project(Dependencies.Mullvad.themeLib))
     implementation(project(Dependencies.Mullvad.paymentLib))
     implementation(project(Dependencies.Mullvad.mapLib))
+    implementation("androidx.core:core-splashscreen:1.1.0-rc01")
 
     // Play implementation
     playImplementation(project(Dependencies.Mullvad.billingLib))

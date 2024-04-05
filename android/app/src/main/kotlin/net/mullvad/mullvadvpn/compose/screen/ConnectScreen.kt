@@ -112,7 +112,6 @@ fun Connect(navigator: DestinationsNavigator) {
     val state by connectViewModel.uiState.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
-
     CollectSideEffectWithLifecycle(
         connectViewModel.uiSideEffect,
         minActiveState = Lifecycle.State.RESUMED
