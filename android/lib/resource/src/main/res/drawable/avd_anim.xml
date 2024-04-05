@@ -89,7 +89,7 @@
             <set>
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="401"
+                        android:startOffset="801"
                         android:duration="197"
                         android:valueFrom="0.1"
                         android:valueTo="0.4"
@@ -97,15 +97,15 @@
                         android:interpolator="@android:anim/overshoot_interpolator" />
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="156"
+                        android:startOffset="556"
                         android:duration="45"
-                        android:valueFrom="0.2"
+                        android:valueFrom="0.0"
                         android:valueTo="0.2"
                         android:valueType="floatType"
                         android:interpolator="@android:interpolator/fast_out_slow_in" />
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="240"
+                        android:startOffset="640"
                         android:duration="45"
                         android:valueFrom="0.15"
                         android:valueTo="0.15"
@@ -113,7 +113,7 @@
                         android:interpolator="@android:interpolator/fast_out_slow_in" />
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="317"
+                        android:startOffset="717"
                         android:duration="36"
                         android:valueFrom="0"
                         android:valueTo="0.4"
@@ -121,7 +121,7 @@
                         android:interpolator="@android:anim/bounce_interpolator" />
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="201"
+                        android:startOffset="601"
                         android:duration="10"
                         android:valueFrom="0"
                         android:valueTo="0"
@@ -129,7 +129,7 @@
                         android:interpolator="@android:interpolator/fast_out_slow_in" />
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="285"
+                        android:startOffset="685"
                         android:duration="10"
                         android:valueFrom="0"
                         android:valueTo="0"
@@ -137,7 +137,7 @@
                         android:interpolator="@android:interpolator/fast_out_slow_in" />
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="353"
+                        android:startOffset="753"
                         android:duration="10"
                         android:valueFrom="0"
                         android:valueTo="0"
@@ -153,7 +153,7 @@
 
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="66"
+                        android:startOffset="466"
                         android:duration="100"
                         android:valueFrom="0"
                         android:valueTo="0.3"
@@ -163,7 +163,7 @@
 
                 <objectAnimator
                         android:propertyName="fillAlpha"
-                        android:startOffset="401"
+                        android:startOffset="801"
                         android:duration="197"
                         android:valueFrom="0.2"
                         android:valueTo="0.4"
