@@ -51,6 +51,7 @@ runs:
           -scheme MullvadVPNUITests \
           -testPlan $XCODE_TEST_PLAN \
           -destination "platform=iOS,id=$TEST_DEVICE_UDID" \
+          -resultBundlePath end-to-end-test-results \
           clean test 2>&1 | xcbeautify --report junit --report-path test-report
       shell: bash
       working-directory: ios/
