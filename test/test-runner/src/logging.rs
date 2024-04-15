@@ -68,9 +68,15 @@ pub fn init_logger() -> Result<(), SetLoggerError> {
 }
 
 pub async fn get_mullvad_app_logs() -> LogOutput {
+    let mut cmd = tokio::process::Command::new("scutil").arg("--dns").spawn().unwrap();
+    let cmdout = cmd.wait_with_output().await.unwrap();
+    println!("stdout: {:?}", std::str::from_utf8(&cmdout.stdout).unwrap());
+
+    let mut log_files = read_log_files().await.unwrap();
+
     LogOutput {
         settings_json: read_settings_file().await,
-        log_files: read_log_files().await,
+        log_files: Ok(log_files),
     }
 }
 
