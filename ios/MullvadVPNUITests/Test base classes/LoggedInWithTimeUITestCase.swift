@@ -13,6 +13,12 @@ class LoggedInWithTimeUITestCase: BaseUITestCase {
     override func setUp() {
         super.setUp()
 
+        let hasTimeAccountNumber = getAccountWithTime()
+
+        addTeardownBlock {
+            self.returnAccountWithTime(accountNumber: hasTimeAccountNumber)
+        }
+
         agreeToTermsOfServiceIfShown()
         dismissChangeLogIfShown()
         logoutIfLoggedIn()

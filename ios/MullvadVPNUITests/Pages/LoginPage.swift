@@ -32,22 +32,34 @@ class LoginPage: Page {
         return self
     }
 
-    @discardableResult public func verifyDeviceLabelShown() -> Self {
-        XCTAssertTrue(
-            app.staticTexts[AccessibilityIdentifier.headerDeviceNameLabel]
-                .waitForExistence(timeout: BaseUITestCase.defaultTimeout)
-        )
-
-        return self
-    }
-
     @discardableResult public func verifySuccessIconShown() -> Self {
-        _ = app.images.element(matching: .image, identifier: "IconSuccess")
+        let predicate = NSPredicate(format: "identifier == 'statusImageView' AND value == 'success'")
+        let elementQuery = app.images.containing(predicate)
+        let elementExists = elementQuery.firstMatch.waitForExistence(timeout: BaseUITestCase.defaultTimeout)
+        XCTAssertTrue(elementExists)
         return self
     }
 
     @discardableResult public func verifyFailIconShown() -> Self {
-        _ = app.images.element(matching: .image, identifier: "IconFail").waitForExistence(timeout: 15)
+        let predicate = NSPredicate(format: "identifier == 'statusImageView' AND value == 'fail'")
+        let elementQuery = app.images.containing(predicate)
+        let elementExists = elementQuery.firstMatch.waitForExistence(timeout: BaseUITestCase.defaultTimeout)
+        XCTAssertTrue(elementExists)
         return self
+    }
+
+    /// Wait for success icon to be shown. Returns true if shown, false if timing out without the icon being shown
+    func waitForSuccessIcon() throws -> Self {
+        let statusIcon = app.images[.statusImageView]
+        XCTAssertEqual(statusIcon.accessibilityValue, "success", "Showing success status icon")
+        return self
+    }
+
+    /// Checks whether success icon is being shown
+    func getSuccessIconShown() -> Bool {
+        let predicate = NSPredicate(format: "identifier == 'statusImageView' AND value == 'success'")
+        let elementQuery = app.images.containing(predicate)
+        let elementExists = elementQuery.firstMatch.waitForExistence(timeout: BaseUITestCase.defaultTimeout)
+        return elementExists
     }
 }

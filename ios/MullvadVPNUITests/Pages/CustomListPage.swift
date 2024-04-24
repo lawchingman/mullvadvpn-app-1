@@ -18,7 +18,7 @@ class CustomListPage: Page {
 
     @discardableResult func verifyCreateButtonIs(enabled: Bool) -> Self {
         let saveOrCreateButton = app.buttons[.saveCreateCustomListButton]
-        XCTAssertTrue(saveOrCreateButton.isEnabled == enabled)
+        XCTAssertTrue(saveOrCreateButton.isEnabled == enabled, "Verify state of create button")
         return self
     }
 

@@ -6,10 +6,12 @@ IOS_DEVICE_PIN_CODE =
 // UUID to identify test runs. Should be unique per test device. Generate with for example uuidgen on macOS.
 TEST_DEVICE_IDENTIFIER_UUID = 
 
+// Base64 encoded token for the partner API
+PARTNER_API_TOKEN = 
+
 // Mullvad accounts used by UI tests
 HAS_TIME_ACCOUNT_NUMBER[config=Debug] = 
 HAS_TIME_ACCOUNT_NUMBER[config=Staging] = 
-FIVE_WIREGUARD_KEYS_ACCOUNT_NUMBER = 
 
 // Ad serving domain used when testing ad blocking. Note that we are assuming there's an HTTP server running on the host.
 AD_SERVING_DOMAIN = vpnlist.to

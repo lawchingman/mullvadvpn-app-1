@@ -21,7 +21,7 @@ class Page {
         if let pageAccessibilityIdentifier = self.pageAccessibilityIdentifier {
             XCTAssert(
                 self.app.otherElements[pageAccessibilityIdentifier]
-                    .waitForExistence(timeout: BaseUITestCase.defaultTimeout)
+                    .waitForExistence(timeout: BaseUITestCase.defaultTimeout), "Page is shown"
             )
         }
     }

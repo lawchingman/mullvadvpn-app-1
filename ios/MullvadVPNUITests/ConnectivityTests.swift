@@ -20,8 +20,13 @@ class ConnectivityTests: LoggedOutUITestCase {
 
     /// Verifies that the app still functions when API has been blocked
     func testAPIConnectionViaBridges() throws {
-        let app = XCUIApplication()
-        app.launch()
+        firewallAPIClient.removeRules()
+        let hasTimeAccountNumber = getAccountWithTime()
+
+        addTeardownBlock {
+            self.returnAccountWithTime(accountNumber: hasTimeAccountNumber)
+            self.firewallAPIClient.removeRules()
+        }
 
         try Networking.verifyCanAccessAPI() // Just to make sure there's no old firewall rule still active
         firewallAPIClient.createRule(try FirewallRule.makeBlockAPIAccessFirewallRule())
@@ -29,19 +34,23 @@ class ConnectivityTests: LoggedOutUITestCase {
 
         LoginPage(app)
             .tapAccountNumberTextField()
-            .enterText(self.hasTimeAccountNumber)
+            .enterText(hasTimeAccountNumber)
             .tapAccountNumberSubmitButton()
 
         // After creating firewall rule first login attempt might fail. One more attempt is allowed since the app is cycling between two methods.
-        if isLoggedIn() {
-            LoginPage(app)
-                .verifySuccessIconShown()
+        let successIconShown = LoginPage(app)
+            .getSuccessIconShown()
+
+        if successIconShown {
+            HeaderBar(app)
                 .verifyDeviceLabelShown()
         } else {
             LoginPage(app)
                 .verifyFailIconShown()
                 .tapAccountNumberSubmitButton()
                 .verifySuccessIconShown()
+
+            HeaderBar(app)
                 .verifyDeviceLabelShown()
         }
     }

@@ -62,7 +62,7 @@ class AccountPage: Page {
             return self
         }
 
-        XCTAssertEqual(strippedDate, paidUntilLabelDate)
+        XCTAssertEqual(strippedDate, paidUntilLabelDate, "Paid until date correct")
 
         return self
     }

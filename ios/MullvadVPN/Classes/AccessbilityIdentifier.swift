@@ -13,6 +13,8 @@ public enum AccessibilityIdentifier: String {
     case accountButton
     case agreeButton
     case alertOkButton
+    case appLogsDoneButton
+    case appLogsShareButton
     case applyButton
     case cancelButton
     case connectionPanelButton
@@ -85,6 +87,7 @@ public enum AccessibilityIdentifier: String {
     case accountView
     case alertContainerView
     case alertTitle
+    case appLogsView
     case changeLogAlert
     case deviceManagementView
     case headerBarView
@@ -118,9 +121,11 @@ public enum AccessibilityIdentifier: String {
     case dnsSettingsEnterIPAddressTextField
     case loginTextField
     case selectLocationSearchTextField
+    case problemReportAppLogsTextView
     case problemReportEmailTextField
     case problemReportMessageTextView
     case deleteAccountTextField
+    case statusImageView
 
     // DNS settings
     case dnsSettings

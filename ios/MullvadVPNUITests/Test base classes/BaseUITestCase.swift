@@ -17,13 +17,49 @@ class BaseUITestCase: XCTestCase {
     // swiftlint:disable force_cast
     let displayName = Bundle(for: BaseUITestCase.self)
         .infoDictionary?["DisplayName"] as! String
-    let hasTimeAccountNumber = Bundle(for: BaseUITestCase.self)
-        .infoDictionary?["HasTimeAccountNumber"] as! String
-    let fiveWireGuardKeysAccountNumber = Bundle(for: BaseUITestCase.self)
-        .infoDictionary?["FiveWireGuardKeysAccountNumber"] as! String
+    private let bundleHasTimeAccountNumber = Bundle(for: BaseUITestCase.self)
+        .infoDictionary?["HasTimeAccountNumber"] as? String
+    private let bundleNoTimeAccountNumber = Bundle(for: BaseUITestCase.self)
+        .infoDictionary?["NoTimeAccountNumber"] as? String
     let iOSDevicePinCode = Bundle(for: BaseUITestCase.self)
         .infoDictionary?["IOSDevicePinCode"] as! String
     // swiftlint:enable force_cast
+
+    /// Get an account number with time. If an account with time is specified in the configuration file that account will be used, else a temporary account will be created.
+    func getAccountWithTime() -> String {
+        if let configuredAccountWithTime = bundleHasTimeAccountNumber, !configuredAccountWithTime.isEmpty {
+            return configuredAccountWithTime
+        } else {
+            let partnerAPIClient = PartnerAPIClient()
+            let accountNumber = partnerAPIClient.createAccount()
+            _ = partnerAPIClient.addTime(accountNumber: accountNumber, days: 1)
+            return accountNumber
+        }
+    }
+
+    /// Return account with time after done using it This is neccessary because if a temporary account was created we want to delete it.
+    func returnAccountWithTime(accountNumber: String) {
+        if bundleHasTimeAccountNumber?.isEmpty == true {
+            PartnerAPIClient().deleteAccount(accountNumber: accountNumber)
+        }
+    }
+
+    /// Get an account number without time. If an account without time  is specified in the configuration file that account will be used, else a temporary account will be created.
+    func getAccountWithoutTime() -> String {
+        if let configuredAccountWithoutTime = bundleNoTimeAccountNumber, !configuredAccountWithoutTime.isEmpty {
+            return configuredAccountWithoutTime
+        } else {
+            let partnerAPIClient = PartnerAPIClient()
+            let accountNumber = partnerAPIClient.createAccount()
+            return accountNumber
+        }
+    }
+
+    func returnAccountWithoutTime(accountNumber: String) {
+        if bundleNoTimeAccountNumber?.isEmpty == true {
+            PartnerAPIClient().deleteAccount(accountNumber: accountNumber)
+        }
+    }
 
     /// Handle iOS add VPN configuration permission alert - allow and enter device PIN code
     func allowAddVPNConfigurations() {
@@ -56,7 +92,7 @@ class BaseUITestCase: XCTestCase {
         return true
     }
 
-    /// Suite level teardown ran after test have executed
+    /// Suite level teardown ran after all tests in suite have been executed
     override class func tearDown() {
         if shouldUninstallAppInTeardown() {
             uninstallApp()
@@ -72,6 +108,32 @@ class BaseUITestCase: XCTestCase {
     /// Test level teardown
     override func tearDown() {
         app.terminate()
+
+        if let testRun = self.testRun, testRun.failureCount > 0 {
+            app.launch()
+
+            HeaderBar(app)
+                .tapSettingsButton()
+
+            SettingsPage(app)
+                .tapReportAProblemCell()
+
+            ProblemReportPage(app)
+                .tapViewAppLogsButton()
+
+            let logText = AppLogsPage(app)
+                .getAppLogText()
+
+            // Attach app log to result
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+            let dateString = dateFormatter.string(from: Date())
+            let attachment = XCTAttachment(string: logText)
+            attachment.name = "app-log-\(dateString).log"
+            add(attachment)
+
+            app.terminate()
+        }
     }
 
     /// Check if currently logged on to an account. Note that it is assumed that we are logged in if login view isn't currently shown.
@@ -118,10 +180,23 @@ class BaseUITestCase: XCTestCase {
 
     /// Login with specified account number. It is a prerequisite that the login page is currently shown.
     func login(accountNumber: String) {
+        var successIconShown = false
+        var retryCount = 0
+        let maxRetryCount = 3
+
         LoginPage(app)
             .tapAccountNumberTextField()
             .enterText(accountNumber)
-            .tapAccountNumberSubmitButton()
+
+        repeat {
+            successIconShown = LoginPage(app)
+                .tapAccountNumberSubmitButton()
+                .getSuccessIconShown()
+
+            retryCount += 1
+        } while successIconShown == false && retryCount < maxRetryCount
+
+        HeaderBar(app)
             .verifyDeviceLabelShown()
     }
 

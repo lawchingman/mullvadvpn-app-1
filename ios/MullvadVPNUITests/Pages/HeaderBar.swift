@@ -29,4 +29,13 @@ class HeaderBar: Page {
         settingsButton.tap()
         return self
     }
+
+    @discardableResult public func verifyDeviceLabelShown() -> Self {
+        XCTAssertTrue(
+            app.staticTexts[AccessibilityIdentifier.headerDeviceNameLabel]
+                .waitForExistence(timeout: BaseUITestCase.defaultTimeout), "Device name displayed in header"
+        )
+
+        return self
+    }
 }

@@ -33,7 +33,7 @@ class ProblemReportPage: Page {
     }
 
     @discardableResult func tapViewAppLogsButton() -> Self {
-        app.otherElements[AccessibilityIdentifier.problemReportAppLogsButton]
+        app.buttons[AccessibilityIdentifier.problemReportAppLogsButton]
             .tap()
 
         return self
