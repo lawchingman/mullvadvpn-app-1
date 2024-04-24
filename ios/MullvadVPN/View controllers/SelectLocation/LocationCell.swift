@@ -65,6 +65,7 @@ class LocationCell: UITableViewCell {
     private var behavior: LocationCellBehavior = .select
     private let chevronDown = UIImage(resource: .iconChevronDown)
     private let chevronUp = UIImage(resource: .iconChevronUp)
+    private var isMultipHopSelection = false
 
     var isDisabled = false {
         didSet {
@@ -244,7 +245,7 @@ class LocationCell: UITableViewCell {
     }
 
     private func statusIndicatorColor() -> UIColor {
-        if isDisabled {
+        if isDisabled && !isMultipHopSelection {
             return UIColor.RelayStatusIndicator.inactiveColor
         } else if isHighlighted {
             return UIColor.RelayStatusIndicator.highlightColor
@@ -318,7 +319,16 @@ extension LocationCell {
         checkboxButton.isSelected = item.isSelected
         checkboxButton.tintColor = item.isSelected ? .successColor : .white
 
+        setMultihopSelection(item.multihopContext)
         setBehavior(behavior)
+    }
+
+    func setMultihopSelection(_ context: RelaySelection.MultihopContext?) {
+        if let context {
+            isMultipHopSelection = true
+            isDisabled = true
+            locationLabel.text! += " (\(context.description))"
+        }
     }
 
     private func setBehavior(_ newBehavior: LocationCellBehavior) {

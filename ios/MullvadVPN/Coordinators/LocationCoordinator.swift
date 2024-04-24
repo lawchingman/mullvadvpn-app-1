@@ -56,7 +56,7 @@ class LocationCoordinator: Coordinator, Presentable, Presenting {
     func start() {
         let locationViewControllerWrapper = LocationViewControllerWrapper(
             customListRepository: customListRepository,
-            selectedRelays: tunnelManager.settings.relayConstraints.locations.value
+            selectedRelays: createSelectedRelays()
         )
         locationViewControllerWrapper.delegate = self
 
@@ -73,6 +73,20 @@ class LocationCoordinator: Coordinator, Presentable, Presenting {
         }
 
         navigationController.pushViewController(locationViewControllerWrapper, animated: false)
+    }
+
+    private func createSelectedRelays() -> RelaySelection {
+        var selectedRelays = RelaySelection(
+            entry: UserSelectedRelays(locations: [.country("se")]),
+            exit: tunnelManager.settings.relayConstraints.locations.value,
+            currentContext: nil
+        )
+
+        #if DEBUG
+        selectedRelays.currentContext = .exit
+        #endif
+
+        return selectedRelays
     }
 
     private func makeRelayFilterCoordinator(forModalPresentation isModalPresentation: Bool)
@@ -161,8 +175,6 @@ extension LocationCoordinator: LocationViewControllerWrapperDelegate {
         tunnelManager.updateSettings([.relayConstraints(relayConstraints)]) {
             self.tunnelManager.startTunnel()
         }
-
-        didFinish?(self)
     }
 
     func didUpdateFilter(filter: RelayFilter) {

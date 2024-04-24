@@ -19,20 +19,36 @@ protocol LocationViewControllerWrapperDelegate: AnyObject {
 }
 
 final class LocationViewControllerWrapper: UIViewController {
-    private let locationViewController: LocationViewController
+    enum SegmentedControlOption: Int {
+        case entry, exit
+    }
+
+    private let entryLocationViewController: LocationViewController?
+    private let exitLocationViewController: LocationViewController
     private let segmentedControl = UISegmentedControl()
+    private let locationViewContainer = UIStackView()
+    private var selectedRelays: RelaySelection
 
     weak var delegate: LocationViewControllerWrapperDelegate?
 
-    init(customListRepository: CustomListRepositoryProtocol, selectedRelays: UserSelectedRelays?) {
-        locationViewController = LocationViewController(
+    init(customListRepository: CustomListRepositoryProtocol, selectedRelays: RelaySelection) {
+        entryLocationViewController = LocationViewController(
             customListRepository: customListRepository,
             selectedRelays: selectedRelays
         )
 
+        exitLocationViewController = LocationViewController(
+            customListRepository: customListRepository,
+            selectedRelays: selectedRelays
+        )
+
+        self.selectedRelays = selectedRelays
+
         super.init(nibName: nil, bundle: nil)
 
-        locationViewController.delegate = self
+        updateViewControllers {
+            $0.delegate = self
+        }
     }
 
     var didFinish: (() -> Void)?
@@ -50,14 +66,25 @@ final class LocationViewControllerWrapper: UIViewController {
         setUpNavigation()
         setUpSegmentedControl()
         addSubviews()
+        swapViewController()
     }
 
     func setCachedRelays(_ cachedRelays: CachedRelays, filter: RelayFilter) {
-        locationViewController.setCachedRelays(cachedRelays, filter: filter)
+        updateViewControllers {
+            $0.setCachedRelays(cachedRelays, filter: filter)
+        }
     }
 
     func refreshCustomLists() {
-        locationViewController.refreshCustomLists()
+        updateViewControllers {
+            $0.refreshCustomLists()
+        }
+    }
+
+    private func updateViewControllers(callback: (LocationViewController) -> Void) {
+        [entryLocationViewController, exitLocationViewController]
+            .compactMap { $0 }
+            .forEach { callback($0) }
     }
 
     private func setUpNavigation() {
@@ -104,39 +131,70 @@ final class LocationViewControllerWrapper: UIViewController {
             tableName: "SelectLocation",
             value: "Entry",
             comment: ""
-        ), at: 0, animated: false)
+        ), at: SegmentedControlOption.entry.rawValue, animated: false)
         segmentedControl.insertSegment(withTitle: NSLocalizedString(
             "MULTIHOP_TAB_EXIT",
             tableName: "SelectLocation",
             value: "Exit",
             comment: ""
-        ), at: 1, animated: false)
+        ), at: SegmentedControlOption.exit.rawValue, animated: false)
 
-        segmentedControl.selectedSegmentIndex = 0
+        segmentedControl.selectedSegmentIndex = selectedRelays.currentContext?.rawValue ?? 0
         segmentedControl.addTarget(self, action: #selector(segmentedControlDidChange), for: .valueChanged)
     }
 
     private func addSubviews() {
-        addChild(locationViewController)
-        locationViewController.didMove(toParent: self)
-
-        view.addConstrainedSubviews([segmentedControl, locationViewController.view]) {
+        view.addConstrainedSubviews([segmentedControl, locationViewContainer]) {
             segmentedControl.heightAnchor.constraint(equalToConstant: 44)
             segmentedControl.pinEdgesToSuperviewMargins(PinnableEdges([.top(0), .leading(8), .trailing(8)]))
 
-            locationViewController.view.pinEdgesToSuperview(.all().excluding(.top))
+            locationViewContainer.pinEdgesToSuperview(.all().excluding(.top))
 
-            #if DEBUG
-            locationViewController.view.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 4)
-            #else
-            locationViewController.view.pinEdgeToSuperviewMargin(.top(0))
-            #endif
+            if selectedRelays.currentContext == nil {
+                locationViewContainer.pinEdgeToSuperviewMargin(.top(0))
+            } else {
+                locationViewContainer.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 4)
+            }
         }
     }
 
     @objc
     private func segmentedControlDidChange(sender: UISegmentedControl) {
-        refreshCustomLists()
+        switch segmentedControl.selectedSegmentIndex {
+        case SegmentedControlOption.entry.rawValue:
+            selectedRelays.currentContext = .entry
+        case SegmentedControlOption.exit.rawValue:
+            selectedRelays.currentContext = .exit
+        default:
+            break
+        }
+
+        swapViewController()
+    }
+
+    func swapViewController() {
+        locationViewContainer.arrangedSubviews.forEach { view in
+            view.removeFromSuperview()
+        }
+
+        var currentViewController: LocationViewController?
+
+        switch selectedRelays.currentContext {
+        case .entry:
+            exitLocationViewController.removeFromParent()
+            currentViewController = entryLocationViewController
+        case .exit, .none:
+            entryLocationViewController?.removeFromParent()
+            currentViewController = exitLocationViewController
+        }
+
+        guard let currentViewController else { return }
+
+        currentViewController.setSelectedRelays(selectedRelays)
+        addChild(currentViewController)
+        currentViewController.didMove(toParent: self)
+
+        locationViewContainer.addArrangedSubview(currentViewController.view)
     }
 }
 
@@ -146,7 +204,18 @@ extension LocationViewControllerWrapper: LocationViewControllerDelegate {
     }
 
     func didSelectRelays(relays: UserSelectedRelays) {
-        delegate?.didSelectRelays(relays: relays)
+        switch selectedRelays.currentContext {
+        case .entry:
+            selectedRelays.entry = relays
+            delegate?.didSelectRelays(relays: relays)
+
+            // Trigger change in segmented control, which in turn triggers view controller swap.
+            segmentedControl.selectedSegmentIndex = SegmentedControlOption.exit.rawValue
+            segmentedControl.sendActions(for: .valueChanged)
+        case .exit, .none:
+            delegate?.didSelectRelays(relays: relays)
+            didFinish?()
+        }
     }
 
     func didUpdateFilter(filter: RelayFilter) {

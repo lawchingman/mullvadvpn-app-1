@@ -25,7 +25,7 @@ final class LocationViewController: UIViewController {
     private var dataSource: LocationDataSource?
     private var cachedRelays: CachedRelays?
     private var filter = RelayFilter()
-    private var selectedRelays: UserSelectedRelays?
+    private var selectedRelays: RelaySelection
     weak var delegate: LocationViewControllerDelegate?
     var customListRepository: CustomListRepositoryProtocol
 
@@ -37,9 +37,10 @@ final class LocationViewController: UIViewController {
         return (filter.ownership == .any) && (filter.providers == .any)
     }
 
-    init(customListRepository: CustomListRepositoryProtocol, selectedRelays: UserSelectedRelays?) {
+    init(customListRepository: CustomListRepositoryProtocol, selectedRelays: RelaySelection) {
         self.customListRepository = customListRepository
         self.selectedRelays = selectedRelays
+
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -55,7 +56,7 @@ final class LocationViewController: UIViewController {
         view.accessibilityIdentifier = .selectLocationView
         view.backgroundColor = .secondaryColor
 
-        setUpDataSources()
+        setUpDataSource()
         setUpTableView()
         setUpTopContent()
 
@@ -97,9 +98,14 @@ final class LocationViewController: UIViewController {
         dataSource?.refreshCustomLists(selectedRelays: selectedRelays)
     }
 
+    func setSelectedRelays(_ selectedRelays: RelaySelection) {
+        self.selectedRelays = selectedRelays
+        dataSource?.setSelectedRelays(selectedRelays)
+    }
+
     // MARK: - Private
 
-    private func setUpDataSources() {
+    private func setUpDataSource() {
         dataSource = LocationDataSource(
             tableView: tableView,
             allLocations: AllLocationDataSource(),

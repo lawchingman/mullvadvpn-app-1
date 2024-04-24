@@ -17,7 +17,8 @@ final class LocationDataSource:
     LocationDiffableDataSourceProtocol {
     private var currentSearchString = ""
     private var dataSources: [LocationDataSourceProtocol] = []
-    private var selectedItem: LocationCellViewModel?
+    private var selection: LocationCellViewModel?
+    private var multiHopSelection: LocationCellViewModel?
     let tableView: UITableView
     let sections: [LocationSection]
 
@@ -50,7 +51,7 @@ final class LocationDataSource:
         defaultRowAnimation = .fade
     }
 
-    func setRelays(_ response: REST.ServerRelaysResponse, selectedRelays: UserSelectedRelays?, filter: RelayFilter) {
+    func setRelays(_ response: REST.ServerRelaysResponse, selectedRelays: RelaySelection, filter: RelayFilter) {
         let allLocationsDataSource =
             dataSources.first(where: { $0 is AllLocationDataSource }) as? AllLocationDataSource
 
@@ -64,7 +65,7 @@ final class LocationDataSource:
         allLocationsDataSource?.reload(response, relays: relays)
         customListsDataSource?.reload(allLocationNodes: allLocationsDataSource?.nodes ?? [])
 
-        mapSelectedItem(from: selectedRelays)
+        setSelectedRelays(selectedRelays)
         filterRelays(by: currentSearchString)
     }
 
@@ -82,7 +83,7 @@ final class LocationDataSource:
 
         updateDataSnapshot(with: list, reloadExisting: !searchString.isEmpty) {
             if searchString.isEmpty {
-                self.setSelectedItem(self.selectedItem, animated: false, completion: {
+                self.updateSelection(self.selection, animated: false, completion: {
                     self.scrollToSelectedRelay()
                 })
             } else {
@@ -92,7 +93,7 @@ final class LocationDataSource:
     }
 
     /// Refreshes the custom list section and keeps all modifications intact (selection and expanded states).
-    func refreshCustomLists(selectedRelays: UserSelectedRelays?) {
+    func refreshCustomLists(selectedRelays: RelaySelection) {
         guard let allLocationsDataSource =
             dataSources.first(where: { $0 is AllLocationDataSource }) as? AllLocationDataSource,
             let customListsDataSource =
@@ -110,7 +111,7 @@ final class LocationDataSource:
         customListsDataSource.reload(allLocationNodes: allLocationsDataSource.nodes)
 
         // Reapply current selection.
-        mapSelectedItem(from: selectedRelays)
+        setSelectedRelays(selectedRelays)
 
         // Reapply current search filter.
         let searchResultNodes = dataSources[0].search(by: currentSearchString)
@@ -133,6 +134,16 @@ final class LocationDataSource:
         ], reloadExisting: true)
     }
 
+    func setSelectedRelays(_ selectedRelays: RelaySelection) {
+        let contextScopedRelays = selectedRelays.relaysFromCurrentContext
+
+        selection = mapSelection(from: contextScopedRelays.current)
+        multiHopSelection = mapMultihopSelection(from: contextScopedRelays.inverted)
+        multiHopSelection?.multihopContext = selectedRelays.invertedContext
+
+        tableView.reloadData()
+    }
+
     func scrollToSelectedRelay() {
         indexPathForSelectedRelay().flatMap {
             tableView.scrollToRow(at: $0, at: .middle, animated: false)
@@ -146,14 +157,14 @@ final class LocationDataSource:
 
     // Called from `LocationDiffableDataSourceProtocol`.
     func nodeShouldBeSelected(_ node: LocationNode) -> Bool {
-        false
+        false // N/A
     }
 
     private func indexPathForSelectedRelay() -> IndexPath? {
-        selectedItem.flatMap { indexPath(for: $0) }
+        selection.flatMap { indexPath(for: $0) }
     }
 
-    private func mapSelectedItem(from selectedRelays: UserSelectedRelays?) {
+    private func mapSelection(from selectedRelays: UserSelectedRelays?) -> LocationCellViewModel? {
         let allLocationsDataSource =
             dataSources.first(where: { $0 is AllLocationDataSource }) as? AllLocationDataSource
 
@@ -165,7 +176,7 @@ final class LocationDataSource:
             if let customListSelection = selectedRelays.customListSelection,
                let customList = customListsDataSource?.customList(by: customListSelection.listId),
                let selectedNode = customListsDataSource?.node(by: selectedRelays, for: customList) {
-                selectedItem = LocationCellViewModel(
+                return LocationCellViewModel(
                     section: .customLists,
                     node: selectedNode,
                     indentationLevel: selectedNode.hierarchyLevel
@@ -173,47 +184,59 @@ final class LocationDataSource:
                 // Look for a matching all locations node.
             } else if let location = selectedRelays.locations.first,
                       let selectedNode = allLocationsDataSource?.node(by: location) {
-                selectedItem = LocationCellViewModel(
+                return LocationCellViewModel(
                     section: .allLocations,
                     node: selectedNode,
                     indentationLevel: selectedNode.hierarchyLevel
                 )
             }
         }
+
+        return nil
     }
 
-    private func setSelectedItem(_ item: LocationCellViewModel?, animated: Bool, completion: (() -> Void)? = nil) {
-        selectedItem = item
-        guard let selectedItem else { return }
+    private func mapMultihopSelection(from selectedRelays: UserSelectedRelays?) -> LocationCellViewModel? {
+        // Multihop selection doesn't apply to anything but single hosts.
+        guard
+            selectedRelays?.locations.count == 1,
+            case .hostname = selectedRelays?.locations.first
+        else { return nil }
 
-        let rootNode = selectedItem.node.root
+        return mapSelection(from: selectedRelays)
+    }
+
+    private func updateSelection(_ item: LocationCellViewModel?, animated: Bool, completion: (() -> Void)? = nil) {
+        selection = item
+        guard let selection else { return }
+
+        let rootNode = selection.node.root
 
         // Exit early if no changes to the node tree should be made.
-        guard selectedItem.node != rootNode else {
+        guard selection.node != rootNode else {
             completion?()
             return
         }
 
         // Make sure we have an index path for the selected item.
         guard let indexPath = indexPath(for: LocationCellViewModel(
-            section: selectedItem.section,
+            section: selection.section,
             node: rootNode
         )) else { return }
 
         // Walk tree backwards to determine which nodes should be expanded.
-        selectedItem.node.forEachAncestor { node in
+        selection.node.forEachAncestor { node in
             node.showsChildren = true
         }
 
         // Construct node tree.
         let nodesToAdd = recursivelyCreateCellViewModelTree(
             for: rootNode,
-            in: selectedItem.section,
+            in: selection.section,
             indentationLevel: 1
         )
 
         // Insert the new node tree below the selected item.
-        var snapshotItems = snapshot().itemIdentifiers(inSection: selectedItem.section)
+        var snapshotItems = snapshot().itemIdentifiers(inSection: selection.section)
         snapshotItems.insert(contentsOf: nodesToAdd, at: indexPath.row + 1)
 
         let list = sections.enumerated().map { index, section in
@@ -233,6 +256,11 @@ final class LocationDataSource:
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         // swiftlint:disable:next force_cast
         let cell = super.tableView(tableView, cellForRowAt: indexPath) as! LocationCell
+
+        if itemIdentifier(for: indexPath)?.node == multiHopSelection?.node {
+            cell.setMultihopSelection(multiHopSelection?.multihopContext)
+        }
+
         cell.delegate = self
         return cell
     }
@@ -271,7 +299,8 @@ extension LocationDataSource: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
-        itemIdentifier(for: indexPath)?.node.isActive ?? false
+        guard let item = itemIdentifier(for: indexPath) else { return false }
+        return (item.node != multiHopSelection?.node) && item.node.isActive
     }
 
     func tableView(_ tableView: UITableView, indentationLevelForRowAt indexPath: IndexPath) -> Int {
@@ -279,15 +308,17 @@ extension LocationDataSource: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if let item = itemIdentifier(for: indexPath), item == selectedItem {
-            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+        if let item = itemIdentifier(for: indexPath), item == selection {
+            cell.setSelected(true, animated: false)
         }
     }
 
     func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
         if let indexPath = indexPathForSelectedRelay() {
-            tableView.deselectRow(at: indexPath, animated: false)
-            selectedItem = nil
+            if let cell = tableView.cellForRow(at: indexPath) {
+                cell.setSelected(false, animated: false)
+            }
+            selection = nil
         }
 
         return indexPath
@@ -295,7 +326,7 @@ extension LocationDataSource: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         guard let item = itemIdentifier(for: indexPath) else { return }
-        selectedItem = item
+        selection = item
 
         var customListSelection: UserSelectedRelays.CustomListSelection?
         if let topmostNode = item.node.root as? CustomListLocationNode {

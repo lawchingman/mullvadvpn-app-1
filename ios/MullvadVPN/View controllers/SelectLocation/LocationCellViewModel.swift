@@ -13,12 +13,14 @@ struct LocationCellViewModel: Hashable {
     let node: LocationNode
     var indentationLevel = 0
     var isSelected = false
+    var multihopContext: RelaySelection.MultihopContext?
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(node)
         hasher.combine(node.children.count)
         hasher.combine(section)
         hasher.combine(isSelected)
+        hasher.combine(multihopContext)
         hasher.combine(indentationLevel)
     }
 
@@ -27,6 +29,7 @@ struct LocationCellViewModel: Hashable {
             lhs.node.children.count == rhs.node.children.count &&
             lhs.section == rhs.section &&
             lhs.isSelected == rhs.isSelected &&
+            lhs.multihopContext == rhs.multihopContext &&
             lhs.indentationLevel == rhs.indentationLevel
     }
 }
