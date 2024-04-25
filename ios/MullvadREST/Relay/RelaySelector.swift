@@ -119,6 +119,25 @@ public enum RelaySelector {
         )
     }
 
+    public static func getSingleHopRelays<T: AnyRelay>(
+        _ relayConstraints: RelayConstraints,
+        relays: [RelayWithLocation<T>]
+    ) -> [RelayWithLocation<T>] {
+        findMatchesRelays(
+            relayConstraints.exitLocations,
+            portConstraint: relayConstraints.port,
+            filterConstraint: relayConstraints.filter,
+            relays: relays
+        )
+    }
+
+    public static func getMultiHopRelays<T: AnyRelay>(
+        _ relayConstraints: RelayConstraints,
+        portConstraint: RelayConstraint<UInt16>,
+        filterConstraint: RelayConstraint<RelayFilter>,
+        relays: [RelayWithLocation<T>]
+    ) {}
+
     /// Determines whether a `REST.ServerRelay` satisfies the given relay filter.
     public static func relayMatchesFilter(_ relay: AnyRelay, filter: RelayFilter) -> Bool {
         if case let .only(providers) = filter.providers, providers.contains(relay.provider) == false {
@@ -140,13 +159,40 @@ public enum RelaySelector {
         _ constraints: RelayConstraints,
         relays: [RelayWithLocation<T>]
     ) -> [RelayWithLocation<T>] {
+        let exitCandidates = findMatchesRelays(
+            constraints.exitLocations,
+            portConstraint: constraints.port,
+            filterConstraint: constraints.filter,
+            relays: relays
+        )
+        guard let entryLocations = constraints.entryLocations else {
+            return exitCandidates
+        }
+
+        let entryCandidates = findMatchesRelays(
+            entryLocations,
+            portConstraint: constraints.port,
+            filterConstraint: constraints.filter,
+            relays: relays
+        )
+        func pickRandomExcluding(list: [RelayWithLocation<T>], exclude: RelayWithLocation<T>) {
+            pickRandomRelayByWeight(relays: list.filter { $0.matches(location: exclude.serverLocation) })
+        }
+    }
+
+    private static func findMatchesRelays<T: AnyRelay>(
+        _ relayConstraint: RelayConstraint<UserSelectedRelays>,
+        portConstraint: RelayConstraint<UInt16>,
+        filterConstraint: RelayConstraint<RelayFilter>,
+        relays: [RelayWithLocation<T>]
+    ) -> [RelayWithLocation<T>] {
         // Filter on active status, filter, and location.
         let filteredRelays = relays.filter { relayWithLocation -> Bool in
             guard relayWithLocation.relay.active else {
                 return false
             }
 
-            switch constraints.filter {
+            switch filterConstraint {
             case .any:
                 break
             case let .only(filter):
@@ -155,7 +201,7 @@ public enum RelaySelector {
                 }
             }
 
-            return switch constraints.locations {
+            return switch relayConstraint {
             case .any:
                 true
             case let .only(relayConstraint):
@@ -168,7 +214,7 @@ public enum RelaySelector {
 
         // Filter on country inclusion.
         let includeInCountryFilteredRelays = filteredRelays.filter { relayWithLocation in
-            return switch constraints.locations {
+            return switch relayConstraint {
             case .any:
                 true
             case let .only(relayConstraint):
