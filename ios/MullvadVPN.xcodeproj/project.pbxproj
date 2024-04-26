@@ -859,6 +859,9 @@
 		F06045E62B231EB700B2D37A /* URLSessionTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06045E52B231EB700B2D37A /* URLSessionTransport.swift */; };
 		F06045EA2B23217E00B2D37A /* ShadowsocksTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06045E92B23217E00B2D37A /* ShadowsocksTransport.swift */; };
 		F06045EC2B2322A500B2D37A /* Jittered.swift in Sources */ = {isa = PBXBuildFile; fileRef = F06045EB2B2322A500B2D37A /* Jittered.swift */; };
+		F0685B992BDB988E0062713E /* NoRelaysSatisfyingConstraintsError.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0685B982BDB988E0062713E /* NoRelaysSatisfyingConstraintsError.swift */; };
+		F0685B9B2BDB9D7E0062713E /* RelaySelectorResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0685B9A2BDB9D7E0062713E /* RelaySelectorResult.swift */; };
+		F0685B9D2BDBCD140062713E /* MultihopSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0685B9C2BDBCD140062713E /* MultihopSettings.swift */; };
 		F07BF2622A26279100042943 /* RedeemVoucherOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07BF2612A26279100042943 /* RedeemVoucherOperation.swift */; };
 		F07C9D952B220C77006F1C5E /* libshadowsocks_proxy.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 01F1FF1D29F0627D007083C3 /* libshadowsocks_proxy.a */; };
 		F07CFF2029F2720E008C0343 /* RegisteredDeviceInAppNotificationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07CFF1F29F2720E008C0343 /* RegisteredDeviceInAppNotificationProvider.swift */; };
@@ -2023,6 +2026,9 @@
 		F06045E52B231EB700B2D37A /* URLSessionTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSessionTransport.swift; sourceTree = "<group>"; };
 		F06045E92B23217E00B2D37A /* ShadowsocksTransport.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ShadowsocksTransport.swift; sourceTree = "<group>"; };
 		F06045EB2B2322A500B2D37A /* Jittered.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Jittered.swift; sourceTree = "<group>"; };
+		F0685B982BDB988E0062713E /* NoRelaysSatisfyingConstraintsError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoRelaysSatisfyingConstraintsError.swift; sourceTree = "<group>"; };
+		F0685B9A2BDB9D7E0062713E /* RelaySelectorResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaySelectorResult.swift; sourceTree = "<group>"; };
+		F0685B9C2BDBCD140062713E /* MultihopSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultihopSettings.swift; sourceTree = "<group>"; };
 		F07BF2572A26112D00042943 /* InputTextFormatterTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = InputTextFormatterTests.swift; sourceTree = "<group>"; };
 		F07BF2612A26279100042943 /* RedeemVoucherOperation.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RedeemVoucherOperation.swift; sourceTree = "<group>"; };
 		F07CFF1F29F2720E008C0343 /* RegisteredDeviceInAppNotificationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegisteredDeviceInAppNotificationProvider.swift; sourceTree = "<group>"; };
@@ -3043,6 +3049,7 @@
 				068CE5732927B7A400A068BB /* Migration.swift */,
 				A9D96B192A8247C100A5C673 /* MigrationManager.swift */,
 				58B2FDD52AA71D2A003EB5C6 /* MullvadSettings.h */,
+				F0685B9C2BDBCD140062713E /* MultihopSettings.swift */,
 				586C0D962B04E0AC00E7CDD7 /* PersistentAccessMethod.swift */,
 				44DD7D2C2B74E44A0005F67F /* QuantumResistanceSettings.swift */,
 				58FF2C02281BDE02009EF542 /* SettingsManager.swift */,
@@ -3053,11 +3060,11 @@
 				A92ECC272A7802AB0052F1B1 /* StoredDeviceData.swift */,
 				A97D30162AE6B5E90045C0E4 /* StoredWgKeyData.swift */,
 				A92ECC202A77FFAF0052F1B1 /* TunnelSettings.swift */,
+				449872E02B7BBC5400094DDC /* TunnelSettingsUpdate.swift */,
 				587AD7C523421D7000E93A53 /* TunnelSettingsV1.swift */,
 				580F8B8228197881002E0998 /* TunnelSettingsV2.swift */,
 				A988DF282ADE880300D807EF /* TunnelSettingsV3.swift */,
 				A93181A02B727ED700E341D2 /* TunnelSettingsV4.swift */,
-				449872E02B7BBC5400094DDC /* TunnelSettingsUpdate.swift */,
 				A988DF252ADE86ED00D807EF /* WireGuardObfuscationSettings.swift */,
 			);
 			path = MullvadSettings;
@@ -3778,8 +3785,10 @@
 				F0DDE4272B220A15006B57A7 /* Haversine.swift */,
 				7A516C392B7111A700BBD33D /* IPOverrideWrapper.swift */,
 				F0DDE4292B220A15006B57A7 /* Midpoint.swift */,
+				F0685B982BDB988E0062713E /* NoRelaysSatisfyingConstraintsError.swift */,
 				5820675A26E6576800655B05 /* RelayCache.swift */,
 				F0DDE4282B220A15006B57A7 /* RelaySelector.swift */,
+				F0685B9A2BDB9D7E0062713E /* RelaySelectorResult.swift */,
 			);
 			path = Relay;
 			sourceTree = "<group>";
@@ -4780,8 +4789,10 @@
 				A90763BC2B2857D50045ADF0 /* Socks5StatusCode.swift in Sources */,
 				A90763B82B2857D50045ADF0 /* Socks5Command.swift in Sources */,
 				A90763BE2B2857D50045ADF0 /* Socks5HandshakeNegotiation.swift in Sources */,
+				F0685B9B2BDB9D7E0062713E /* RelaySelectorResult.swift in Sources */,
 				A90763B02B2857D50045ADF0 /* Socks5ConnectCommand.swift in Sources */,
 				06799ADD28F98E4800ACD94E /* RESTError.swift in Sources */,
+				F0685B992BDB988E0062713E /* NoRelaysSatisfyingConstraintsError.swift in Sources */,
 				A90763B92B2857D50045ADF0 /* Socks5ForwardingProxy.swift in Sources */,
 				A970C89D2B29E38C000A7684 /* Socks5UsernamePasswordCommand.swift in Sources */,
 				A90763B32B2857D50045ADF0 /* Socks5Authentication.swift in Sources */,
@@ -5023,6 +5034,7 @@
 				F08827882B318F960020A383 /* PersistentAccessMethod.swift in Sources */,
 				58B2FDE32AA71D5C003EB5C6 /* StoredDeviceData.swift in Sources */,
 				58B2FDDF2AA71D5C003EB5C6 /* DNSSettings.swift in Sources */,
+				F0685B9D2BDBCD140062713E /* MultihopSettings.swift in Sources */,
 				58B2FDE02AA71D5C003EB5C6 /* TunnelSettings.swift in Sources */,
 				A988DF2A2ADE880300D807EF /* TunnelSettingsV3.swift in Sources */,
 				58B2FDE42AA71D5C003EB5C6 /* SettingsManager.swift in Sources */,

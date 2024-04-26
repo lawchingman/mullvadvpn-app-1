@@ -11,7 +11,19 @@ import MullvadTypes
 
 /// Protocol describing a type that can select a relay.
 public protocol RelaySelectorProtocol {
-    func selectRelay(with constraints: RelayConstraints, connectionAttemptFailureCount: UInt) throws -> SelectedRelay
+    func selectRelay(with constraints: RelayConstraints, connectionAttemptFailureCount: UInt) throws
+        -> SelectedRelayResult
+}
+
+public struct SelectedRelayResult: Equatable, Codable {
+    let entryRelay: SelectedRelay?
+    let exitRelay: SelectedRelay
+
+    /// Designated initializer.
+    public init(entryRelay: SelectedRelay? = nil, exitRelay: SelectedRelay) {
+        self.entryRelay = entryRelay
+        self.exitRelay = exitRelay
+    }
 }
 
 /// Struct describing the selected relay.

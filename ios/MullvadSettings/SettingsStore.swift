@@ -16,6 +16,7 @@ public enum SettingsKey: String, CaseIterable {
     case customRelayLists = "CustomRelayLists"
     case lastUsedAccount = "LastUsedAccount"
     case shouldWipeSettings = "ShouldWipeSettings"
+    case isMultiHopEnabled = "isMultiHopEnabled"
 }
 
 public protocol SettingsStore {

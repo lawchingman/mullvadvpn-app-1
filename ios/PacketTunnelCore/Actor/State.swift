@@ -230,5 +230,5 @@ public enum NextRelay: Equatable, Codable {
     case current
 
     /// Use pre-selected relay.
-    case preSelected(SelectedRelay)
+    case preSelected(SelectedRelayResult)
 }

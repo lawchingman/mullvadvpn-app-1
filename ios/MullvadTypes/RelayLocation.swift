@@ -107,8 +107,7 @@ public enum RelayLocation: Codable, Hashable, CustomDebugStringConvertible {
     }
 }
 
-public struct UserSelectedRelays: Codable, Equatable,CustomDebugStringConvertible {
-  
+public struct UserSelectedRelays: Codable, Equatable, CustomDebugStringConvertible {
     public let locations: [RelayLocation]
     public let customListSelection: CustomListSelection?
 
@@ -116,7 +115,7 @@ public struct UserSelectedRelays: Codable, Equatable,CustomDebugStringConvertibl
         self.locations = locations
         self.customListSelection = customListSelection
     }
-    
+
     public var debugDescription: String {
         "locations : \(locations)"
     }

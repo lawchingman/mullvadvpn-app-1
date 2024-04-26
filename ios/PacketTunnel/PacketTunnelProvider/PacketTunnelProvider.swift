@@ -66,14 +66,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         deviceChecker = DeviceChecker(accountsProxy: accountsProxy, devicesProxy: devicesProxy)
 
+        let settingsReader = SettingsReader()
+
         actor = PacketTunnelActor(
             timings: PacketTunnelActorTimings(),
             tunnelAdapter: adapter,
             tunnelMonitor: tunnelMonitor,
             defaultPathObserver: PacketTunnelPathObserver(packetTunnelProvider: self, eventQueue: internalQueue),
             blockedStateErrorMapper: BlockedStateErrorMapper(),
-            relaySelector: RelaySelectorWrapper(relayCache: ipOverrideWrapper),
-            settingsReader: SettingsReader(),
+            relaySelector: RelaySelectorWrapper(relayCache: ipOverrideWrapper, settingsReader: settingsReader),
+            settingsReader: settingsReader,
             protocolObfuscator: ProtocolObfuscator<UDPOverTCPObfuscator>()
         )
 

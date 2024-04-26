@@ -400,9 +400,9 @@ extension PacketTunnelActor {
     private func selectRelay(
         nextRelay: NextRelay,
         relayConstraints: RelayConstraints,
-        currentRelay: SelectedRelay?,
+        currentRelay: SelectedRelayResult?,
         connectionAttemptCount: UInt
-    ) throws -> SelectedRelay {
+    ) throws -> SelectedRelayResult {
         switch nextRelay {
         case .current:
             if let currentRelay {

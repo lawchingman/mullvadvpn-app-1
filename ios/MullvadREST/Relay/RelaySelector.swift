@@ -12,131 +12,155 @@ import MullvadTypes
 private let defaultPort: UInt16 = 53
 
 public enum RelaySelector {
-    /**
-     Returns random shadowsocks TCP bridge, otherwise `nil` if there are no shadowdsocks bridges.
-     */
-    public static func shadowsocksTCPBridge(from relays: REST.ServerRelaysResponse) -> REST.ServerShadowsocks? {
-        relays.bridge.shadowsocks.filter { $0.protocol == "tcp" }.randomElement()
-    }
+    public enum Shadowsocks {
+        /**
+         Returns random shadowsocks TCP bridge, otherwise `nil` if there are no shadowdsocks bridges.
+         */
+        public static func tcpBridge(from relays: REST.ServerRelaysResponse) -> REST.ServerShadowsocks? {
+            relays.bridge.shadowsocks.filter { $0.protocol == "tcp" }.randomElement()
+        }
 
-    /// Return a random Shadowsocks bridge relay, or `nil` if no relay were found.
-    ///
-    /// Non `active` relays are filtered out.
-    /// - Parameter relays: The list of relays to randomly select from.
-    /// - Returns: A Shadowsocks relay or `nil` if no active relay were found.
-    public static func shadowsocksRelay(from relaysResponse: REST.ServerRelaysResponse) -> REST.BridgeRelay? {
-        relaysResponse.bridge.relays.filter { $0.active }.randomElement()
-    }
+        /// Return a random Shadowsocks bridge relay, or `nil` if no relay were found.
+        ///
+        /// Non `active` relays are filtered out.
+        /// - Parameter relays: The list of relays to randomly select from.
+        /// - Returns: A Shadowsocks relay or `nil` if no active relay were found.
+        public static func relay(from relaysResponse: REST.ServerRelaysResponse) -> REST.BridgeRelay? {
+            relaysResponse.bridge.relays.filter { $0.active }.randomElement()
+        }
 
-    /// Returns the closest Shadowsocks relay using the given `constraints`, or a random relay if `constraints` were
-    /// unsatisfiable.
-    ///
-    /// - Parameters:
-    ///   - constraints: The user selected `constraints`
-    ///   - relays: The list of relays to randomly select from.
-    /// - Returns: A Shadowsocks relay or `nil` if no active relay were found.
-    public static func closestShadowsocksRelayConstrained(
-        by constraints: RelayConstraints,
-        in relaysResponse: REST.ServerRelaysResponse
-    ) -> REST.BridgeRelay? {
-        let mappedBridges = mapRelays(relays: relaysResponse.bridge.relays, locations: relaysResponse.locations)
-        let filteredRelays = applyConstraints(constraints, relays: mappedBridges)
-        guard filteredRelays.isEmpty == false else { return shadowsocksRelay(from: relaysResponse) }
-
-        // Compute the midpoint location from all the filtered relays
-        // Take *either* the first five relays, OR the relays below maximum bridge distance
-        // sort all of them by Haversine distance from the computed midpoint location
-        // then use the roulette selection to pick a bridge
-
-        let midpointDistance = Midpoint.location(in: filteredRelays.map { $0.serverLocation.geoCoordinate })
-        let maximumBridgeDistance = 1500.0
-        let relaysWithDistance = filteredRelays.map {
-            RelayWithDistance(
-                relay: $0.relay,
-                distance: Haversine.distance(
-                    midpointDistance.latitude,
-                    midpointDistance.longitude,
-                    $0.serverLocation.latitude,
-                    $0.serverLocation.longitude
-                )
+        /// Returns the closest Shadowsocks relay using the given `constraints`, or a random relay if `constraints` were
+        /// unsatisfiable.
+        ///
+        /// - Parameters:
+        ///   - constraints: The user selected `constraints`
+        ///   - relays: The list of relays to randomly select from.
+        /// - Returns: A Shadowsocks relay or `nil` if no active relay were found.
+        public static func closestRelayConstrained(
+            by constraints: RelayConstraints,
+            in relaysResponse: REST.ServerRelaysResponse
+        ) -> REST.BridgeRelay? {
+            let mappedBridges = mapRelays(relays: relaysResponse.bridge.relays, locations: relaysResponse.locations)
+            let filteredRelays = applyConstraint(
+                constraints.entryLocations ?? constraints.exitLocations,
+                portConstraint: constraints.port,
+                filterConstraint: constraints.filter,
+                relays: mappedBridges
             )
-        }.sorted {
-            $0.distance < $1.distance
-        }.filter {
-            $0.distance <= maximumBridgeDistance
-        }.prefix(5)
+            guard filteredRelays.isEmpty == false else { return relay(from: relaysResponse) }
 
-        var greatestDistance = 0.0
-        relaysWithDistance.forEach {
-            if $0.distance > greatestDistance {
-                greatestDistance = $0.distance
+            // Compute the midpoint location from all the filtered relays
+            // Take *either* the first five relays, OR the relays below maximum bridge distance
+            // sort all of them by Haversine distance from the computed midpoint location
+            // then use the roulette selection to pick a bridge
+
+            let midpointDistance = Midpoint.location(in: filteredRelays.map { $0.serverLocation.geoCoordinate })
+            let maximumBridgeDistance = 1500.0
+            let relaysWithDistance = filteredRelays.map {
+                RelayWithDistance(
+                    relay: $0.relay,
+                    distance: Haversine.distance(
+                        midpointDistance.latitude,
+                        midpointDistance.longitude,
+                        $0.serverLocation.latitude,
+                        $0.serverLocation.longitude
+                    )
+                )
+            }.sorted {
+                $0.distance < $1.distance
+            }.filter {
+                $0.distance <= maximumBridgeDistance
+            }.prefix(5)
+
+            var greatestDistance = 0.0
+            relaysWithDistance.forEach {
+                if $0.distance > greatestDistance {
+                    greatestDistance = $0.distance
+                }
             }
+
+            let randomRelay = rouletteSelection(relays: Array(relaysWithDistance), weightFunction: { relay in
+                UInt64(1 + greatestDistance - relay.distance)
+            })
+
+            return randomRelay?.relay ?? filteredRelays.randomElement()?.relay
+        }
+    }
+
+    public enum WireGuard {
+        public static func evaluate(
+            by constraints: RelayConstraints,
+            in relaysResponse: REST.ServerRelaysResponse,
+            numberOfFailedAttempts: UInt
+        ) throws -> RelaySelectorResult {
+            let exitCandidates  = try findBestMatch(
+                relays: relaysResponse,
+                relayConstraint: constraints.exitLocations,
+                portConstraint: constraints.port,
+                filterConstraint: constraints.filter,
+                numberOfFailedAttempts: numberOfFailedAttempts
+            )
+
+            guard let entryLocations = constraints.entryLocations else {
+                return RelaySelectorResult(entryRelay: nil, exitRelay: exitCandidates)
+            }
+
+            // TODO: - do your math
+            return RelaySelectorResult(entryRelay: exitCandidates, exitRelay: exitCandidates)
         }
 
-        let randomRelay = rouletteSelection(relays: Array(relaysWithDistance), weightFunction: { relay in
-            UInt64(1 + greatestDistance - relay.distance)
-        })
+        // MARK: - private functions
 
-        return randomRelay?.relay ?? filteredRelays.randomElement()?.relay
-    }
+        /**
+         Filters relay list using given constraints and selects random relay.
+         Throws an error if there are no relays satisfying the given constraints.
+         */
+        private static func findBestMatch(
+            relays: REST.ServerRelaysResponse,
+            relayConstraint: RelayConstraint<UserSelectedRelays>,
+            portConstraint: RelayConstraint<UInt16>,
+            filterConstraint: RelayConstraint<RelayFilter>,
+            numberOfFailedAttempts: UInt
+        ) throws -> RelaySelectorMatch {
+            let mappedRelays = mapRelays(relays: relays.wireguard.relays, locations: relays.locations)
+            let filteredRelays = applyConstraint(
+                relayConstraint,
+                portConstraint: portConstraint,
+                filterConstraint: filterConstraint,
+                relays: mappedRelays
+            )
+            let port = applyConstraint(
+                portConstraint,
+                rawPortRanges: relays.wireguard.portRanges,
+                numberOfFailedAttempts: numberOfFailedAttempts
+            )
 
-    /**
-     Filters relay list using given constraints and selects random relay.
-     Throws an error if there are no relays satisfying the given constraints.
-     */
-    public static func evaluate(
-        relays: REST.ServerRelaysResponse,
-        constraints: RelayConstraints,
-        numberOfFailedAttempts: UInt
-    ) throws -> RelaySelectorResult {
-        let mappedRelays = mapRelays(relays: relays.wireguard.relays, locations: relays.locations)
-        let filteredRelays = applyConstraints(constraints, relays: mappedRelays)
-        let port = applyConstraints(
-            constraints,
-            rawPortRanges: relays.wireguard.portRanges,
-            numberOfFailedAttempts: numberOfFailedAttempts
-        )
+            guard let relayWithLocation = pickRandomRelayByWeight(relays: filteredRelays), let port else {
+                throw NoRelaysSatisfyingConstraintsError()
+            }
 
-        guard let relayWithLocation = pickRandomRelayByWeight(relays: filteredRelays), let port else {
-            throw NoRelaysSatisfyingConstraintsError()
+            let endpoint = MullvadEndpoint(
+                ipv4Relay: IPv4Endpoint(
+                    ip: relayWithLocation.relay.ipv4AddrIn,
+                    port: port
+                ),
+                ipv6Relay: nil,
+                ipv4Gateway: relays.wireguard.ipv4Gateway,
+                ipv6Gateway: relays.wireguard.ipv6Gateway,
+                publicKey: relayWithLocation.relay.publicKey
+            )
+
+            return RelaySelectorMatch(
+                endpoint: endpoint,
+                relay: relayWithLocation.relay,
+                location: relayWithLocation.serverLocation
+            )
         }
-
-        let endpoint = MullvadEndpoint(
-            ipv4Relay: IPv4Endpoint(
-                ip: relayWithLocation.relay.ipv4AddrIn,
-                port: port
-            ),
-            ipv6Relay: nil,
-            ipv4Gateway: relays.wireguard.ipv4Gateway,
-            ipv6Gateway: relays.wireguard.ipv6Gateway,
-            publicKey: relayWithLocation.relay.publicKey
-        )
-
-        return RelaySelectorResult(
-            endpoint: endpoint,
-            relay: relayWithLocation.relay,
-            location: relayWithLocation.serverLocation
-        )
     }
+}
 
-    public static func getSingleHopRelays<T: AnyRelay>(
-        _ relayConstraints: RelayConstraints,
-        relays: [RelayWithLocation<T>]
-    ) -> [RelayWithLocation<T>] {
-        findMatchesRelays(
-            relayConstraints.exitLocations,
-            portConstraint: relayConstraints.port,
-            filterConstraint: relayConstraints.filter,
-            relays: relays
-        )
-    }
-
-    public static func getMultiHopRelays<T: AnyRelay>(
-        _ relayConstraints: RelayConstraints,
-        portConstraint: RelayConstraint<UInt16>,
-        filterConstraint: RelayConstraint<RelayFilter>,
-        relays: [RelayWithLocation<T>]
-    ) {}
+extension RelaySelector {
+    // MARK: - public
 
     /// Determines whether a `REST.ServerRelay` satisfies the given relay filter.
     public static func relayMatchesFilter(_ relay: AnyRelay, filter: RelayFilter) -> Bool {
@@ -154,33 +178,109 @@ public enum RelaySelector {
         }
     }
 
-    /// Produce a list of `RelayWithLocation` items satisfying the given constraints
-    static func applyConstraints<T: AnyRelay>(
-        _ constraints: RelayConstraints,
-        relays: [RelayWithLocation<T>]
-    ) -> [RelayWithLocation<T>] {
-        let exitCandidates = findMatchesRelays(
-            constraints.exitLocations,
-            portConstraint: constraints.port,
-            filterConstraint: constraints.filter,
-            relays: relays
-        )
-        guard let entryLocations = constraints.entryLocations else {
-            return exitCandidates
+    // MARK: - private
+
+    private static func pickRandomRelayByWeight<T: AnyRelay>(relays: [RelayWithLocation<T>])
+        -> RelayWithLocation<T>? {
+        rouletteSelection(relays: relays, weightFunction: { relayWithLocation in relayWithLocation.relay.weight })
+    }
+
+    private static func pickRandomPort(rawPortRanges: [[UInt16]]) -> UInt16? {
+        let portRanges = parseRawPortRanges(rawPortRanges)
+        let portAmount = portRanges.reduce(0) { partialResult, closedRange in
+            partialResult + closedRange.count
         }
 
-        let entryCandidates = findMatchesRelays(
-            entryLocations,
-            portConstraint: constraints.port,
-            filterConstraint: constraints.filter,
-            relays: relays
-        )
-        func pickRandomExcluding(list: [RelayWithLocation<T>], exclude: RelayWithLocation<T>) {
-            pickRandomRelayByWeight(relays: list.filter { $0.matches(location: exclude.serverLocation) })
+        guard var portIndex = (0 ..< portAmount).randomElement() else {
+            return nil
+        }
+
+        for range in portRanges {
+            if portIndex < range.count {
+                return UInt16(portIndex) + range.lowerBound
+            } else {
+                portIndex -= range.count
+            }
+        }
+
+        assertionFailure("Port selection algorithm is broken!")
+
+        return nil
+    }
+
+    private static func rouletteSelection<T>(relays: [T], weightFunction: (T) -> UInt64) -> T? {
+        let totalWeight = relays.map { weightFunction($0) }.reduce(0) { accumulated, weight in
+            accumulated + weight
+        }
+        // Return random relay when all relays within the list have zero weight.
+        guard totalWeight > 0 else {
+            return relays.randomElement()
+        }
+
+        // Pick a random number in the range 1 - totalWeight. This chooses the relay with a
+        // non-zero weight.
+        var i = (1 ... totalWeight).randomElement()!
+
+        let randomRelay = relays.first { relay -> Bool in
+            let (result, isOverflow) = i
+                .subtractingReportingOverflow(weightFunction(relay))
+
+            i = isOverflow ? 0 : result
+
+            return i == 0
+        }
+
+        assert(randomRelay != nil, "At least one relay must've had a weight above 0")
+
+        return randomRelay
+    }
+
+    private static func mapRelays<T: AnyRelay>(
+        relays: [T],
+        locations: [String: REST.ServerLocation]
+    ) -> [RelayWithLocation<T>] {
+        relays.compactMap { relay in
+            guard let serverLocation = locations[relay.location] else { return nil }
+            return makeRelayWithLocationFrom(serverLocation, relay: relay)
         }
     }
 
-    private static func findMatchesRelays<T: AnyRelay>(
+    private static func makeRelayWithLocationFrom<T: AnyRelay>(
+        _ serverLocation: REST.ServerLocation,
+        relay: T
+    ) -> RelayWithLocation<T>? {
+        let locationComponents = relay.location.split(separator: "-")
+        guard locationComponents.count > 1 else { return nil }
+
+        let location = Location(
+            country: serverLocation.country,
+            countryCode: String(locationComponents[0]),
+            city: serverLocation.city,
+            cityCode: String(locationComponents[1]),
+            latitude: serverLocation.latitude,
+            longitude: serverLocation.longitude
+        )
+
+        return RelayWithLocation(relay: relay, serverLocation: location)
+    }
+
+    private static func parseRawPortRanges(_ rawPortRanges: [[UInt16]]) -> [ClosedRange<UInt16>] {
+        rawPortRanges.compactMap { inputRange -> ClosedRange<UInt16>? in
+            guard inputRange.count == 2 else { return nil }
+
+            let startPort = inputRange[0]
+            let endPort = inputRange[1]
+
+            if startPort <= endPort {
+                return startPort ... endPort
+            } else {
+                return nil
+            }
+        }
+    }
+
+    /// Produce a list of `RelayWithLocation` items satisfying the given constraints
+    private static func applyConstraint<T: AnyRelay>(
         _ relayConstraint: RelayConstraint<UserSelectedRelays>,
         portConstraint: RelayConstraint<UInt16>,
         filterConstraint: RelayConstraint<RelayFilter>,
@@ -236,12 +336,12 @@ public enum RelaySelector {
     }
 
     /// Produce a port that is either user provided or randomly selected, satisfying the given constraints.
-    private static func applyConstraints(
-        _ constraints: RelayConstraints,
+    private static func applyConstraint(
+        _ portConstraint: RelayConstraint<UInt16>,
         rawPortRanges: [[UInt16]],
         numberOfFailedAttempts: UInt
     ) -> UInt16? {
-        switch constraints.port {
+        switch portConstraint {
         case let .only(port):
             return port
 
@@ -254,120 +354,9 @@ public enum RelaySelector {
             return useDefaultPort ? defaultPort : pickRandomPort(rawPortRanges: rawPortRanges)
         }
     }
-
-    private static func pickRandomRelayByWeight<T: AnyRelay>(relays: [RelayWithLocation<T>])
-        -> RelayWithLocation<T>? {
-        rouletteSelection(relays: relays, weightFunction: { relayWithLocation in relayWithLocation.relay.weight })
-    }
-
-    private static func rouletteSelection<T>(relays: [T], weightFunction: (T) -> UInt64) -> T? {
-        let totalWeight = relays.map { weightFunction($0) }.reduce(0) { accumulated, weight in
-            accumulated + weight
-        }
-        // Return random relay when all relays within the list have zero weight.
-        guard totalWeight > 0 else {
-            return relays.randomElement()
-        }
-
-        // Pick a random number in the range 1 - totalWeight. This chooses the relay with a
-        // non-zero weight.
-        var i = (1 ... totalWeight).randomElement()!
-
-        let randomRelay = relays.first { relay -> Bool in
-            let (result, isOverflow) = i
-                .subtractingReportingOverflow(weightFunction(relay))
-
-            i = isOverflow ? 0 : result
-
-            return i == 0
-        }
-
-        assert(randomRelay != nil, "At least one relay must've had a weight above 0")
-
-        return randomRelay
-    }
-
-    private static func pickRandomPort(rawPortRanges: [[UInt16]]) -> UInt16? {
-        let portRanges = parseRawPortRanges(rawPortRanges)
-        let portAmount = portRanges.reduce(0) { partialResult, closedRange in
-            partialResult + closedRange.count
-        }
-
-        guard var portIndex = (0 ..< portAmount).randomElement() else {
-            return nil
-        }
-
-        for range in portRanges {
-            if portIndex < range.count {
-                return UInt16(portIndex) + range.lowerBound
-            } else {
-                portIndex -= range.count
-            }
-        }
-
-        assertionFailure("Port selection algorithm is broken!")
-
-        return nil
-    }
-
-    private static func parseRawPortRanges(_ rawPortRanges: [[UInt16]]) -> [ClosedRange<UInt16>] {
-        rawPortRanges.compactMap { inputRange -> ClosedRange<UInt16>? in
-            guard inputRange.count == 2 else { return nil }
-
-            let startPort = inputRange[0]
-            let endPort = inputRange[1]
-
-            if startPort <= endPort {
-                return startPort ... endPort
-            } else {
-                return nil
-            }
-        }
-    }
-
-    private static func mapRelays<T: AnyRelay>(
-        relays: [T],
-        locations: [String: REST.ServerLocation]
-    ) -> [RelayWithLocation<T>] {
-        relays.compactMap { relay in
-            guard let serverLocation = locations[relay.location] else { return nil }
-            return makeRelayWithLocationFrom(serverLocation, relay: relay)
-        }
-    }
-
-    private static func makeRelayWithLocationFrom<T: AnyRelay>(
-        _ serverLocation: REST.ServerLocation,
-        relay: T
-    ) -> RelayWithLocation<T>? {
-        let locationComponents = relay.location.split(separator: "-")
-        guard locationComponents.count > 1 else { return nil }
-
-        let location = Location(
-            country: serverLocation.country,
-            countryCode: String(locationComponents[0]),
-            city: serverLocation.city,
-            cityCode: String(locationComponents[1]),
-            latitude: serverLocation.latitude,
-            longitude: serverLocation.longitude
-        )
-
-        return RelayWithLocation(relay: relay, serverLocation: location)
-    }
 }
 
-public struct NoRelaysSatisfyingConstraintsError: LocalizedError {
-    public var errorDescription: String? {
-        "No relays satisfying constraints."
-    }
-}
-
-public struct RelaySelectorResult: Codable, Equatable {
-    public var endpoint: MullvadEndpoint
-    public var relay: REST.ServerRelay
-    public var location: Location
-}
-
-struct RelayWithLocation<T: AnyRelay> {
+private struct RelayWithLocation<T: AnyRelay> {
     let relay: T
     let serverLocation: Location
 
