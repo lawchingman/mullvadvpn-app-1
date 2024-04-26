@@ -6,6 +6,12 @@ plugins {
     id(Dependencies.Plugin.gradleVersionsId) version Versions.Plugin.gradleVersions
     id(Dependencies.Plugin.ktfmtId) version Versions.Plugin.ktfmt apply false
     id(Dependencies.Plugin.detektId) version Versions.Plugin.detekt
+    //id(Dependencies.Plugin.baselineProfile) version "1.2.4" apply false
+    //id("com.android.test") version "8.3.0" apply false
+    //id(Dependencies.Plugin.androidTestId)
+    //id(Dependencies.Plugin.jetbrainsKotlinAndroid) apply false
+    //id("androidx.baselineprofile") version "1.2.3" apply false
+    //id("com.android.application") version "8.3.0" apply false
 }
 
 buildscript {
@@ -21,6 +27,7 @@ buildscript {
         classpath(Dependencies.Plugin.playPublisher)
         classpath(Dependencies.Plugin.kotlin)
         classpath(Dependencies.Plugin.dependencyCheck)
+        classpath(Dependencies.Plugin.baselineProfile)
 
         // Required for Gradle metadata verification to work properly, see:
         // https://github.com/gradle/gradle/issues/19228

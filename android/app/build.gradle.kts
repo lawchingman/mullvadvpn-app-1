@@ -13,6 +13,9 @@ plugins {
     id(Dependencies.Plugin.kotlinParcelizeId)
     id(Dependencies.Plugin.ksp) version Versions.Plugin.ksp
     id(Dependencies.Plugin.junit5) version Versions.Plugin.junit5
+    // id("com.android.application")
+    // id("androidx.baselineprofile")
+    id(Dependencies.Plugin.baselineProfileId)
 }
 
 val repoRootPath = rootProject.projectDir.absoluteFile.parentFile.absolutePath
@@ -85,6 +88,12 @@ android {
             initWith(buildTypes.getByName(BuildTypes.DEBUG))
             applicationIdSuffix = ".leakcanary"
             matchingFallbacks += BuildTypes.DEBUG
+        }
+        create(BuildTypes.BENCHMARK) {
+            initWith(buildTypes.getByName(BuildTypes.BENCHMARK))
+            isMinifyEnabled = true
+            signingConfig = null
+            matchingFallbacks += BuildTypes.RELEASE
         }
     }
 
@@ -181,15 +190,14 @@ android {
 
     applicationVariants.configureEach {
         val alwaysShowChangelog =
-            gradleLocalProperties(rootProject.projectDir, providers).getProperty("ALWAYS_SHOW_CHANGELOG")
-                ?: "false"
+            gradleLocalProperties(rootProject.projectDir, providers)
+                .getProperty("ALWAYS_SHOW_CHANGELOG") ?: "false"
 
         buildConfigField("boolean", "ALWAYS_SHOW_CHANGELOG", alwaysShowChangelog)
 
         val enableInAppVersionNotifications =
             gradleLocalProperties(rootProject.projectDir, providers)
-                .getProperty("ENABLE_IN_APP_VERSION_NOTIFICATIONS")
-                ?: "true"
+                .getProperty("ENABLE_IN_APP_VERSION_NOTIFICATIONS") ?: "true"
 
         buildConfigField(
             "boolean",
@@ -251,7 +259,8 @@ androidComponents {
                     enabledAppVariantTriples.map { (billing, infra, buildType) ->
                         billing + infra.capitalized() + buildType.capitalized()
                     }
-                enabledVariants.contains(currentVariant.name)
+                val required = listOf("ossProdBenchmarkRelease", "playProdBenchmarkRelease", "playDevmoleBenchmarkRelease", "ossProdBenchmarkFdroid", "playStagemoleBenchmarkRelease")
+                enabledVariants.contains(currentVariant.name) or required.contains(currentVariant.name)
             }
     }
 }
@@ -317,6 +326,8 @@ dependencies {
     implementation(project(Dependencies.Mullvad.themeLib))
     implementation(project(Dependencies.Mullvad.paymentLib))
     implementation(project(Dependencies.Mullvad.mapLib))
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
+    "baselineProfile"(project(":baselineprofile"))
 
     // Play implementation
     playImplementation(project(Dependencies.Mullvad.billingLib))
@@ -370,4 +381,10 @@ dependencies {
     androidTestImplementation(Dependencies.MockK.android)
     androidTestImplementation(Dependencies.junitApi)
     androidTestImplementation(Dependencies.Compose.junit5)
+}
+
+baselineProfile {
+    //mergeIntoMain = true
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
 }

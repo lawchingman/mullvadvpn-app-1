@@ -23,3 +23,4 @@ include(
     ":test:e2e",
     ":test:mockapi"
 )
+include(":baselineprofile")

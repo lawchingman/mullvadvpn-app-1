@@ -116,6 +116,8 @@ object Dependencies {
         const val androidApplicationId = "com.android.application"
         const val androidLibraryId = "com.android.library"
         const val androidTestId = "com.android.test"
+        const val baselineProfile = "androidx.baselineprofile:androidx.baselineprofile.gradle.plugin:${Versions.Plugin.baselineProfile}"
+        const val baselineProfileId = "androidx.baselineprofile"
         const val dependencyCheck =
             "org.owasp:dependency-check-gradle:${Versions.Plugin.dependencyCheck}"
         const val dependencyCheckId = "org.owasp.dependencycheck"
