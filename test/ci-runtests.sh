@@ -203,7 +203,7 @@ function run_tests_for_os {
         --previous-app "${prev_filename}" \
         --test-report "$SCRIPT_DIR/.ci-logs/${os}_report" \
         --vnc 5933 \
-        "$os" test_wireguard_autoconnect 2>&1 | sed "s/${ACCOUNT_TOKEN}/\{ACCOUNT_TOKEN\}/g"
+        "$os" 2>&1 | sed "s/${ACCOUNT_TOKEN}/\{ACCOUNT_TOKEN\}/g"
 }
 
 echo "**********************************"
