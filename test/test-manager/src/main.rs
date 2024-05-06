@@ -310,7 +310,7 @@ async fn main() -> Result<()> {
             .await
             .context("Tests failed");
 
-            if display || true {
+            if display {
                 instance.wait().await;
             }
             socks.close();
