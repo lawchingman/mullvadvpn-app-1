@@ -122,6 +122,10 @@ impl SettingsPersister {
             settings.show_beta_releases = true;
         }
 
+        if let RelaySettings::Normal(ref mut s) = settings.relay_settings {
+            s.wireguard_constraints.use_multihop = true;
+        }
+
         let mut persister = SettingsPersister {
             settings,
             path,

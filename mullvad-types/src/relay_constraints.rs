@@ -458,7 +458,7 @@ impl fmt::Display for OpenVpnConstraints {
 }
 
 /// [`Constraint`]s applicable to WireGuard relays.
-#[derive(Debug, Default, Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(target_os = "android", derive(IntoJava))]
 #[cfg_attr(target_os = "android", jnix(package = "net.mullvad.mullvadvpn.model"))]
 #[serde(rename_all = "snake_case", default)]
@@ -476,10 +476,22 @@ pub struct WireguardConstraints {
     pub entry_location: Constraint<LocationConstraint>,
 }
 
+impl Default for WireguardConstraints {
+    fn default() -> Self {
+        Self {
+            port: Constraint::Any,
+            ip_version: Constraint::Any,
+            use_multihop: true,
+            entry_location: Constraint::Any,
+        }
+    }
+}
+
 impl WireguardConstraints {
     /// Enable or disable multihop.
     pub fn use_multihop(&mut self, multihop: bool) {
-        self.use_multihop = multihop
+        //self.use_multihop = multihop
+        self.use_multihop = true
     }
 
     /// Check if multihop is enabled.

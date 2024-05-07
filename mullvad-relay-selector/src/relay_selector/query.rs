@@ -160,7 +160,7 @@ impl WireguardRelayQuery {
         WireguardRelayQuery {
             port: Constraint::Any,
             ip_version: Constraint::Any,
-            use_multihop: Constraint::Any,
+            use_multihop: Constraint::Only(true),
             entry_location: Constraint::Any,
             obfuscation: SelectedObfuscation::Auto,
             udp2tcp_port: Constraint::Any,
