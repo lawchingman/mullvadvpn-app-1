@@ -36,7 +36,7 @@ class RelayTests: LoggedInWithTimeUITestCase {
             .waitForSecureConnectionLabel()
 
         try Networking.verifyCanAccessInternet()
-        Networking.verifyConnectedThroughMullvad()
+        try Networking.verifyConnectedThroughMullvad()
     }
 
     func testAdBlockingViaDNS() throws {

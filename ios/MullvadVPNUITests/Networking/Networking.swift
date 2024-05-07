@@ -237,8 +237,12 @@ class Networking {
         }
     }
 
-    public static func verifyConnectedThroughMullvad() {
-        let mullvadConnectionJsonEndpoint = "https://am.i.mullvad.net/json"
+    public static func verifyConnectedThroughMullvad() throws {
+        let mullvadConnectionJsonEndpoint = try XCTUnwrap(
+            Bundle(for: Networking.self)
+                .infoDictionary?["AmIJSONUrl"] as? String,
+            "Read am I JSON URL from Info"
+        )
         guard let url = URL(string: mullvadConnectionJsonEndpoint) else {
             XCTFail("Failed to unwrap URL")
             return

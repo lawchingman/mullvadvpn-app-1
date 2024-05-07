@@ -51,7 +51,8 @@ class SelectLocationPage: Page {
     }
 
     @discardableResult func tapCustomListEllipsisButton() -> Self {
-        let customListEllipsisButtons = app.buttons.matching(identifier: AccessibilityIdentifier.openCustomListsMenuButton.rawValue).allElementsBoundByIndex
+        let customListEllipsisButtons = app.buttons
+            .matching(identifier: AccessibilityIdentifier.openCustomListsMenuButton.rawValue).allElementsBoundByIndex
 
         for ellipsisButton in customListEllipsisButtons where ellipsisButton.isHittable {
             ellipsisButton.tap()
